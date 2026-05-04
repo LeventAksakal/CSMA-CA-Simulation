@@ -1,0 +1,5 @@
+target/
+results/
+.venv/
+__pycache__/
+.vscode/time-analytics.json
