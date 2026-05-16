@@ -1,6 +1,6 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AggregateReport {
     pub total_successful_packets: u64,
     pub collision_events: u64,
@@ -8,7 +8,7 @@ pub struct AggregateReport {
     pub throughput_bits_per_slot: f64,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ClassReport {
     pub class_name: String,
     pub users: u32,
@@ -18,7 +18,7 @@ pub struct ClassReport {
     pub throughput_bits_per_slot: f64,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SimulationReport {
     pub total_slots: u64,
     pub payload_bits: u64,

@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 
 use anyhow::{Result, ensure};
 use rand::{RngExt, SeedableRng, rngs::StdRng};
+use serde::{Deserialize, Serialize};
 
 use crate::domain::report::{AggregateReport, ClassReport, SimulationReport};
 use crate::domain::scenario::Scenario;
@@ -17,7 +18,7 @@ use super::{
     window::ContentionWindow,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct StationTraceSnapshot {
     pub id: usize,
     pub class_name: String,
@@ -31,14 +32,14 @@ pub struct StationTraceSnapshot {
     pub collision_attempts: u64,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TraceProgressSnapshot {
     pub elapsed_slots: u64,
     pub aggregate: AggregateReport,
     pub per_class: Vec<ClassReport>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum SlotEvent {
     Busy { busy_slots_remaining: u32 },
     Idle,
@@ -46,7 +47,7 @@ pub enum SlotEvent {
     Collision { station_ids: Vec<usize> },
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TraceFrame {
     pub slot: u64,
     pub medium_busy: bool,
@@ -57,7 +58,7 @@ pub struct TraceFrame {
     pub progress: TraceProgressSnapshot,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SimulationTrace {
     pub frames: Vec<TraceFrame>,
     pub report: SimulationReport,

@@ -53,6 +53,25 @@ Launch the live terminal demo over real simulator trace output:
 cargo run -- demo --preset mixed --slots 180 --seed 7 --tick-ms 150
 ```
 
+Export a deterministic trace while running the demo:
+
+```powershell
+cargo run -- demo --preset mixed --slots 180 --seed 7 --tick-ms 150 --export-trace results/traces/mixed-seed7.json
+```
+
+Replay a previously exported trace:
+
+```powershell
+cargo run -- demo --replay results/traces/mixed-seed7.json --tick-ms 150
+```
+
+Compare two runs side by side by seed or CW setting:
+
+```powershell
+cargo run -- demo --preset mixed --slots 180 --seed 7 --compare-seed 11 --tick-ms 150
+cargo run -- demo --preset mixed --slots 180 --seed 7 --compare-cw-min 8 --tick-ms 150
+```
+
 Run the full workflow from validated simulator outputs to plots:
 
 ```powershell
@@ -70,6 +89,7 @@ cargo run -- plot --users-input results/users.csv --cw-input results/cw.csv --mi
 - `src/app/output.rs`: CSV serialization format shared by experiment export and plotting.
 - `src/app/plot.rs`: CSV aggregation and PNG chart rendering.
 - `src/app/tui.rs`: live terminal demo that replays per-slot simulator traces.
+- `results/traces/*.json`: optional exported trace files for replay and side-by-side comparison.
 - `src/domain/config.rs`: user-facing simulation configuration types.
 - `src/domain/scenario.rs`: explicit scenario, class, timing, and contention-window inputs.
 - `src/domain/report.rs`: aggregate and per-class report types.
@@ -116,7 +136,11 @@ The demo command does not replace the batch workflow. It runs the real simulator
 
 - a live station table showing phase, backoff, frozen counter, CW, and per-station outcomes,
 - aggregate and per-class summaries,
+- in-terminal sparkline charts for throughput, collisions, and cumulative successes,
 - recent event narration for idle slots, success, collision, and busy periods,
+- optional trace export to JSON and replay from stored traces,
+- optional side-by-side comparison of a second seed, a second CW setting, or a second replay file,
+- teaching-mode captions that explain the current CSMA/CA event in plain language,
 - pause, step, restart, and playback-speed controls.
 
 Demo presets:
@@ -131,8 +155,9 @@ Demo controls:
 - `n`: advance one slot while paused.
 - `f`: speed up playback.
 - `s`: slow down playback.
-- `r`: restart the same trace.
+- `r`: restart the current trace or comparison.
 - `q`: quit.
+- `t`: toggle teaching captions.
 
 With the default commands above, the expected trend is:
 

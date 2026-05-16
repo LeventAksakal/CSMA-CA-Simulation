@@ -117,6 +117,16 @@ enum Command {
         seed: u64,
         #[arg(long, default_value_t = 150)]
         tick_ms: u64,
+        #[arg(long)]
+        replay: Option<PathBuf>,
+        #[arg(long)]
+        export_trace: Option<PathBuf>,
+        #[arg(long)]
+        compare_seed: Option<u64>,
+        #[arg(long)]
+        compare_cw_min: Option<u32>,
+        #[arg(long)]
+        compare_replay: Option<PathBuf>,
     },
 }
 
@@ -247,7 +257,22 @@ pub fn run() -> Result<()> {
             slots,
             seed,
             tick_ms,
-        } => tui::run_demo(preset, seed, slots, tick_ms)?,
+            replay,
+            export_trace,
+            compare_seed,
+            compare_cw_min,
+            compare_replay,
+        } => tui::run_demo(tui::DemoOptions {
+            preset,
+            seed,
+            slots,
+            tick_ms,
+            replay,
+            export_trace,
+            compare_seed,
+            compare_cw_min,
+            compare_replay,
+        })?,
     }
 
     Ok(())
