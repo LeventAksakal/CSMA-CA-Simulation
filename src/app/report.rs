@@ -69,13 +69,13 @@ fn append_numeric_section(
         ));
     }
     markdown.push_str(&format!(
-        "| {x_label} | delay mean | delay 95% ci | throughput mean | throughput 95% ci | fairness | variance |\n"
+        "| {x_label} | delay mean | delay 95% ci | throughput mean | throughput 95% ci | fairness | variance | zero-success frac | max-station share |\n"
     ));
-    markdown.push_str("| --- | ---: | --- | ---: | --- | ---: | ---: |\n");
+    markdown.push_str("| --- | ---: | --- | ---: | --- | ---: | ---: | ---: | ---: |\n");
 
     for record in records {
         markdown.push_str(&format!(
-            "| {} | {:.4} | [{:.4}, {:.4}] | {:.4} | [{:.4}, {:.4}] | {:.4} | {:.6} |\n",
+            "| {} | {:.4} | [{:.4}, {:.4}] | {:.4} | [{:.4}, {:.4}] | {:.4} | {:.6} | {:.4} | {:.4} |\n",
             x_value(&record),
             record.mean_average_delay_slots,
             record.ci95_low_average_delay_slots,
@@ -85,6 +85,8 @@ fn append_numeric_section(
             record.ci95_high_throughput_bits_per_slot,
             record.mean_jain_fairness_index,
             record.mean_per_user_throughput_variance,
+            record.mean_zero_success_station_fraction,
+            record.mean_max_station_throughput_share,
         ));
     }
 
@@ -123,13 +125,13 @@ fn append_mixed_section(markdown: &mut String, records: Vec<ExperimentSummaryRec
     markdown.push('\n');
     markdown.push_str("### fairness summary\n\n");
     markdown.push_str(
-        "| scenario | jain fairness | fairness 95% ci | throughput variance | variance 95% ci |\n",
+        "| scenario | jain fairness | fairness 95% ci | throughput variance | variance 95% ci | zero-success frac | zero-success 95% ci | max-station share | max-share 95% ci |\n",
     );
-    markdown.push_str("| --- | ---: | --- | ---: | --- |\n");
+    markdown.push_str("| --- | ---: | --- | ---: | --- | ---: | --- | ---: | --- |\n");
 
     for record in unique_fairness_rows(&records) {
         markdown.push_str(&format!(
-            "| {} | {:.4} | [{:.4}, {:.4}] | {:.6} | [{:.6}, {:.6}] |\n",
+            "| {} | {:.4} | [{:.4}, {:.4}] | {:.6} | [{:.6}, {:.6}] | {:.4} | [{:.4}, {:.4}] | {:.4} | [{:.4}, {:.4}] |\n",
             record.scenario,
             record.mean_jain_fairness_index,
             record.ci95_low_jain_fairness_index,
@@ -137,6 +139,12 @@ fn append_mixed_section(markdown: &mut String, records: Vec<ExperimentSummaryRec
             record.mean_per_user_throughput_variance,
             record.ci95_low_per_user_throughput_variance,
             record.ci95_high_per_user_throughput_variance,
+            record.mean_zero_success_station_fraction,
+            record.ci95_low_zero_success_station_fraction,
+            record.ci95_high_zero_success_station_fraction,
+            record.mean_max_station_throughput_share,
+            record.ci95_low_max_station_throughput_share,
+            record.ci95_high_max_station_throughput_share,
         ));
     }
 

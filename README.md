@@ -1,10 +1,25 @@
-# CSMA-CA Simulation
+# CSMA/CA Simulation
 
-Rust-first simulator for a CSMA/CA coursework project. The repository now covers an explicit slot-based DCF study model, reproducible experiment sweeps, CSV export, PNG plotting, and end-to-end behavioral tests around the core medium-access rules.
+Rust-first CSMA/CA simulator for reproducible DCF studies. The repository provides:
 
-## Bootstrap
+- an explicit slot-based medium-access model,
+- deterministic seeded runs,
+- CLI workflows for single runs and parameter sweeps,
+- CSV, PNG, markdown, and JSON trace outputs,
+- tests around the core DCF behaviors the simulator claims to model.
 
-Initialize or refresh the local toolchain with CLI commands:
+This project targets an inspectable study model inspired by IEEE 802.11 DCF. It does not claim exact clause-level IEEE 802.11 conformance.
+
+## Documentation Map
+
+- [docs/README.md](docs/README.md): documentation index.
+- [docs/usage-guide.md](docs/usage-guide.md): how to run the simulator, what each flag means, and how to interpret the outputs.
+- [docs/dcf-model.md](docs/dcf-model.md): the simulator's DCF model, assumptions, timing abstraction, and limitations.
+- [docs/reference/IEEE-80211-2024.txt](docs/reference/IEEE-80211-2024.txt): repository-local CSMA/CA behavior specification derived from public sources.
+
+## Quick Start
+
+Install the expected local toolchain:
 
 ```powershell
 rustup toolchain install stable
@@ -12,194 +27,141 @@ rustup default stable
 rustup component add rustfmt clippy
 pip install pre-commit
 pre-commit install --install-hooks --overwrite
+```
+
+Run the validation gates:
+
+```powershell
+cargo fmt --all
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test
 pre-commit run --all-files
 ```
 
-## Commands
-
-Run a single scenario and print a summary:
+Run one deterministic scenario:
 
 ```powershell
 cargo run -- single --users 20 --cw-min 16 --slots 20000 --seed 7 --timing-preset baseline
 ```
 
-Sweep the number of users and write both raw trial records and a sibling summary CSV:
+Generate the standard coursework-style outputs:
+
+```powershell
+cargo run -- sweep-users --min-users 10 --max-users 50 --step 10 --cw-min 16 --trials 10 --timing-preset baseline --output results/users.csv
+cargo run -- sweep-cw --users 20 --cw-values 0,2,4,8,16,32,64 --trials 10 --timing-preset baseline --output results/cw.csv
+cargo run -- mixed-classes --lower-users 10 --higher-users 10 --lower-cw-min 8 --higher-cw-min 32 --trials 10 --timing-preset baseline --output results/mixed.csv
+cargo run -- plot --users-input results/users-summary.csv --cw-input results/cw-summary.csv --mixed-input results/mixed-summary.csv --output-dir results/plots
+cargo run -- report --users-input results/users-summary.csv --cw-input results/cw-summary.csv --mixed-input results/mixed-summary.csv --plots-dir results/plots --output results/report.md
+```
+
+## CLI Workflows
+
+Run a single scenario and print aggregate plus per-class metrics:
+
+```powershell
+cargo run -- single --users 20 --cw-min 16 --slots 20000 --payload-bits 12000 --seed 7 --timing-preset baseline
+```
+
+Sweep user count:
 
 ```powershell
 cargo run -- sweep-users --min-users 10 --max-users 50 --step 10 --cw-min 16 --trials 5 --timing-preset baseline --output results/users.csv
 ```
 
-Sweep the minimum contention window:
+Sweep CWmin with the seeded set used by the repository:
 
 ```powershell
-cargo run -- sweep-cw --users 20 --min-cw 8 --max-cw 64 --step 8 --trials 5 --timing-preset baseline --output results/cw.csv
+cargo run -- sweep-cw --users 20 --cw-values 0,2,4,8,16,32,64 --trials 5 --timing-preset baseline --output results/cw.csv
 ```
 
-Run the mixed-class scenario where one class starts with a lower CWmin:
+Run the mixed-class fairness scenario:
 
 ```powershell
 cargo run -- mixed-classes --lower-users 10 --higher-users 10 --lower-cw-min 8 --higher-cw-min 32 --trials 10 --timing-preset baseline --output results/mixed.csv
 ```
 
-Render plots from the generated summary CSV files:
+Render plots and a markdown report from summary CSVs:
 
 ```powershell
 cargo run -- plot --users-input results/users-summary.csv --cw-input results/cw-summary.csv --mixed-input results/mixed-summary.csv --output-dir results/plots
-```
-
-Write a markdown report from the summary CSVs:
-
-```powershell
 cargo run -- report --users-input results/users-summary.csv --cw-input results/cw-summary.csv --mixed-input results/mixed-summary.csv --plots-dir results/plots --output results/report.md
 ```
 
-Launch the live terminal demo over real simulator trace output:
+Launch the live TUI demo, export a trace, replay a trace, or compare two runs:
 
 ```powershell
 cargo run -- demo --preset mixed --slots 180 --seed 7 --tick-ms 150
-```
-
-Export a deterministic trace while running the demo:
-
-```powershell
 cargo run -- demo --preset mixed --slots 180 --seed 7 --tick-ms 150 --export-trace results/traces/mixed-seed7.json
-```
-
-Replay a previously exported trace:
-
-```powershell
 cargo run -- demo --replay results/traces/mixed-seed7.json --tick-ms 150
-```
-
-Compare two runs side by side by seed or CW setting:
-
-```powershell
 cargo run -- demo --preset mixed --slots 180 --seed 7 --compare-seed 11 --tick-ms 150
 cargo run -- demo --preset mixed --slots 180 --seed 7 --compare-cw-min 8 --tick-ms 150
 ```
 
-Run the full workflow from validated simulator outputs to plots:
-
-```powershell
-cargo test
-cargo run -- sweep-users --min-users 10 --max-users 50 --step 10 --cw-min 16 --trials 10 --timing-preset baseline --output results/users.csv
-cargo run -- sweep-cw --users 20 --min-cw 8 --max-cw 64 --step 8 --trials 10 --timing-preset baseline --output results/cw.csv
-cargo run -- mixed-classes --lower-users 10 --higher-users 10 --lower-cw-min 8 --higher-cw-min 32 --trials 10 --timing-preset baseline --output results/mixed.csv
-cargo run -- plot --users-input results/users-summary.csv --cw-input results/cw-summary.csv --mixed-input results/mixed-summary.csv --output-dir results/plots
-cargo run -- report --users-input results/users-summary.csv --cw-input results/cw-summary.csv --mixed-input results/mixed-summary.csv --plots-dir results/plots --output results/report.md
-```
-
-Enable optional parallel trial execution with the existing Rayon feature:
+Enable optional parallel trial execution:
 
 ```powershell
 cargo run --features rayon -- sweep-users --min-users 10 --max-users 50 --step 10 --cw-min 16 --trials 10 --output results/users.csv
 ```
 
+## What The Main Inputs Mean
+
+- `users`: number of saturated stations in a single-class run.
+- `lower-users` and `higher-users`: user counts for the two mixed classes.
+- `cw-min`: class starting contention window. After a success the station resets back to this value.
+- `cw-max`: cap for binary exponential backoff growth.
+- `slots`: number of logical contention slots to simulate.
+- `payload-bits`: payload size credited per successful transmission.
+- `seed`: deterministic RNG seed used to sample backoff counters.
+- `trials`: independent repetitions for sweep commands. Trial seeds start from `seed` and advance deterministically.
+- `timing-preset`: named logical timing profile. See [docs/usage-guide.md](docs/usage-guide.md) for the exact values.
+- `output`: raw trial CSV path. Sweep commands also write a sibling `-summary.csv` file automatically.
+
+## How To Read The Outputs
+
+The simulator produces several output layers:
+
+- raw CSV: one row per class per trial.
+- summary CSV: mean, standard deviation, and 95% confidence interval aggregates for each scenario point.
+- PNG plots: sweep and mixed-class figures generated from the summary CSVs.
+- markdown report: table-oriented report generated from the summary CSVs.
+- JSON trace: slot-by-slot execution history for TUI replay.
+
+The most important metrics are:
+
+- average delay: average packet age in slots at the moment of successful delivery. This is success-conditioned.
+- throughput: delivered payload bits per simulated slot.
+- Jain fairness index: `1.0` is perfectly equal, values near `0.0` indicate strong capture or starvation.
+- per-station throughput variance: larger values mean more inequality across stations.
+- zero-success station fraction: share of stations that delivered no packets at all.
+- max-station throughput share: share of total throughput captured by the dominant station.
+
+Interpret the aggregate metrics together. A scenario can show strong throughput and low success-conditioned delay while still being pathological on fairness, starvation, and capture.
+
+## Timing Presets
+
+- `baseline`: `difs=1`, `sifs=0`, `tx=1`, `collision-penalty=4`
+- `short-defer`: `difs=0`, `sifs=0`, `tx=1`, `collision-penalty=4`
+- `long-transmission`: `difs=1`, `sifs=1`, `tx=3`, `collision-penalty=6`
+
+These are logical slot counts, not direct microsecond claims.
+
 ## Project Layout
 
-- `src/app/cli.rs`: CLI entry points for single runs, sweeps, mixed-class studies, and plotting.
-- `src/app/experiments/mod.rs`: parameter sweeps and mixed-class orchestration.
-- `src/app/output.rs`: raw per-trial CSV serialization helpers.
-- `src/app/summary.rs`: summary-statistics aggregation, fairness metrics, and summary CSV helpers.
-- `src/app/plot.rs`: summary-driven PNG chart rendering with confidence intervals.
-- `src/app/report.rs`: markdown report generation from summary CSV inputs.
-- `src/app/tui.rs`: live terminal demo that replays per-slot simulator traces.
-- `results/traces/*.json`: optional exported trace files for replay and side-by-side comparison.
-- `src/domain/config.rs`: user-facing simulation configuration types.
-- `src/domain/scenario.rs`: explicit scenario, class, timing, and contention-window inputs.
-- `src/domain/report.rs`: aggregate and per-class report types.
-- `src/sim/runner.rs`: simulator entry points for config-based and scenario-based execution.
-- `src/sim/dcf/`: explicit DCF engine, backoff, timing, medium, station state, and metrics logic.
-- `tests/simulation.rs`: deterministic and behavioral tests.
-- `docs/reference/IEEE-80211-2024.txt`: plain-text repository CSMA/CA behavior specification derived from public sources, with the official IEEE 802.11-2024 standard identified as the normative standard family reference.
+- `src/app/cli.rs`: CLI command surface.
+- `src/app/experiments/mod.rs`: user sweep, CW sweep, and mixed-class orchestration.
+- `src/app/output.rs`: raw CSV serialization.
+- `src/app/summary.rs`: summary-statistics aggregation and summary CSV handling.
+- `src/app/plot.rs`: PNG plot generation.
+- `src/app/report.rs`: markdown report generation.
+- `src/app/tui.rs`: live demo, replay, and side-by-side comparison.
+- `src/domain/`: scenario/config/report types.
+- `src/sim/dcf/`: explicit DCF engine, timing, backoff, medium, station, and metrics logic.
+- `tests/`: deterministic integration and golden summary regression tests.
 
 ## Model Scope
 
-This is a slotted CSMA/CA study model inspired by 802.11 DCF rather than a packet-level PHY simulator. The implementation focuses on:
+The simulator models one shared collision domain with explicit DIFS-style defer, random backoff, freeze/resume, success handling, collision handling, binary exponential contention-window growth, and CW reset after success.
 
-- contention and backoff behavior,
-- collision handling and CW expansion,
-- delay and throughput trends,
-- comparative advantage of a lower-CWmin class.
+It does not currently model hidden nodes, RTS/CTS exchange details, NAV, rate adaptation, PHY waveform details, or exact clause-level 802.11 timing.
 
-The repository behavior spec is tracked at `docs/reference/IEEE-80211-2024.txt`. It is a practical derived spec for implementation work, not a verbatim copy of the IEEE standard.
-
-## DCF Coverage
-
-The implemented simulator behavior is intentionally explicit and audit-friendly. The current baseline includes:
-
-- physical carrier sensing over one shared collision domain,
-- DIFS-style defer before contention,
-- random backoff with freeze/resume while the medium is busy,
-- binary exponential contention-window growth after collision,
-- CW reset after success,
-- per-slot trace capture for replayable live demos,
-- deterministic seeded execution,
-- aggregate and per-class delay/throughput reporting.
-
-The repository does not claim exact IEEE clause-level conformance. It is a validated CSMA/CA study model aligned to the local behavior spec in `docs/reference/IEEE-80211-2024.txt`.
-
-## Output Artifacts
-
-The sweep commands emit two CSV layers per run:
-
-- raw per-trial records, such as `results/users.csv`,
-- aggregated summary rows with means, standard deviations, 95% confidence intervals, Jain fairness, and per-user throughput variance, such as `results/users-summary.csv`.
-
-The plot command consumes the summary CSVs and writes three PNG artifacts:
-
-- `results/plots/users.png`: average delay and throughput versus user count with 95% confidence intervals.
-- `results/plots/cw.png`: average delay and throughput versus CWmin with 95% confidence intervals.
-- `results/plots/mixed.png`: mixed-class delay, throughput, Jain fairness, and per-user throughput variance.
-
-The report command consumes the same summary inputs and writes a markdown artifact such as `results/report.md`.
-
-The demo command does not replace the batch workflow. It runs the real simulator, records a deterministic per-slot trace, and replays it in a TUI with:
-
-- a live station table showing phase, backoff, frozen counter, CW, and per-station outcomes,
-- aggregate and per-class summaries,
-- in-terminal sparkline charts for throughput, collisions, and cumulative successes,
-- recent event narration for idle slots, success, collision, and busy periods,
-- optional trace export to JSON and replay from stored traces,
-- optional side-by-side comparison of a second seed, a second CW setting, or a second replay file,
-- teaching-mode captions that explain the current CSMA/CA event in plain language,
-- pause, step, restart, and playback-speed controls.
-
-Demo presets:
-
-- `single`: one station showing defer and clean success behavior.
-- `collision`: high-contention standard class run showing collisions and recovery.
-- `mixed`: lower-CW versus higher-CW classes for a live fairness demo.
-
-Demo controls:
-
-- `space`: pause or resume playback.
-- `n`: advance one slot while paused.
-- `f`: speed up playback.
-- `s`: slow down playback.
-- `r`: restart the current trace or comparison.
-- `q`: quit.
-- `t`: toggle teaching captions.
-
-With the default commands above, the expected trend is:
-
-- delay increases as user count grows,
-- throughput decreases as CWmin grows,
-- the lower-CW class has lower delay and higher throughput than the higher-CW class.
-
-Timing presets:
-
-- `baseline`: `difs=1`, `sifs=0`, `tx=1`.
-- `short-defer`: `difs=0`, `sifs=0`, `tx=1`.
-- `long-transmission`: `difs=1`, `sifs=1`, `tx=3`.
-
-## Validation Notes
-
-The repository includes both unit coverage for DCF subcomponents and integration coverage for end-to-end simulator behavior, including deterministic replay, DIFS gating, collision recovery via CW growth, mixed-class advantage, and golden regression checks over experiment summary outputs.
-
-## Quality Gates
-
-- `cargo fmt --all`
-- `cargo clippy --all-targets --all-features -- -D warnings`
-- `cargo test`
-- `pre-commit run --all-files`
+For the precise modeling statement, see [docs/dcf-model.md](docs/dcf-model.md).

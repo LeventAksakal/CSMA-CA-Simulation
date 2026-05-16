@@ -9,8 +9,8 @@ use plotters::{coord::Shift, prelude::*};
 
 use crate::app::summary::{ExperimentSummaryRecord, read_summary_records};
 
-const CHART_SIZE: (u32, u32) = (1400, 600);
-const MIXED_CHART_SIZE: (u32, u32) = (1400, 900);
+const SWEEP_CHART_SIZE: (u32, u32) = (1800, 1000);
+const MIXED_CHART_SIZE: (u32, u32) = (1800, 1000);
 
 #[derive(Debug, Clone, PartialEq)]
 struct NumericSummaryPoint {
@@ -26,6 +26,15 @@ struct LabeledSummaryPoint {
     mean: f64,
     ci_low: f64,
     ci_high: f64,
+}
+
+struct SweepMetricPanels<'a> {
+    delay: &'a [NumericSummaryPoint],
+    throughput: &'a [NumericSummaryPoint],
+    fairness: &'a [NumericSummaryPoint],
+    variance: &'a [NumericSummaryPoint],
+    zero_success: &'a [NumericSummaryPoint],
+    max_share: &'a [NumericSummaryPoint],
 }
 
 pub fn write_plots(
@@ -63,6 +72,50 @@ pub fn write_plots(
             )
         },
     );
+    let users_fairness = numeric_points(
+        &users_records,
+        |record| record.total_users as f64,
+        |record| {
+            (
+                record.mean_jain_fairness_index,
+                record.ci95_low_jain_fairness_index,
+                record.ci95_high_jain_fairness_index,
+            )
+        },
+    );
+    let users_variance = numeric_points(
+        &users_records,
+        |record| record.total_users as f64,
+        |record| {
+            (
+                record.mean_per_user_throughput_variance,
+                record.ci95_low_per_user_throughput_variance,
+                record.ci95_high_per_user_throughput_variance,
+            )
+        },
+    );
+    let users_zero_success = numeric_points(
+        &users_records,
+        |record| record.total_users as f64,
+        |record| {
+            (
+                record.mean_zero_success_station_fraction,
+                record.ci95_low_zero_success_station_fraction,
+                record.ci95_high_zero_success_station_fraction,
+            )
+        },
+    );
+    let users_max_share = numeric_points(
+        &users_records,
+        |record| record.total_users as f64,
+        |record| {
+            (
+                record.mean_max_station_throughput_share,
+                record.ci95_low_max_station_throughput_share,
+                record.ci95_high_max_station_throughput_share,
+            )
+        },
+    );
     let cw_delay = numeric_points(
         &cw_records,
         |record| record.cw_min.unwrap_or_default() as f64,
@@ -71,6 +124,50 @@ pub fn write_plots(
                 record.mean_average_delay_slots,
                 record.ci95_low_average_delay_slots,
                 record.ci95_high_average_delay_slots,
+            )
+        },
+    );
+    let cw_fairness = numeric_points(
+        &cw_records,
+        |record| record.cw_min.unwrap_or_default() as f64,
+        |record| {
+            (
+                record.mean_jain_fairness_index,
+                record.ci95_low_jain_fairness_index,
+                record.ci95_high_jain_fairness_index,
+            )
+        },
+    );
+    let cw_variance = numeric_points(
+        &cw_records,
+        |record| record.cw_min.unwrap_or_default() as f64,
+        |record| {
+            (
+                record.mean_per_user_throughput_variance,
+                record.ci95_low_per_user_throughput_variance,
+                record.ci95_high_per_user_throughput_variance,
+            )
+        },
+    );
+    let cw_zero_success = numeric_points(
+        &cw_records,
+        |record| record.cw_min.unwrap_or_default() as f64,
+        |record| {
+            (
+                record.mean_zero_success_station_fraction,
+                record.ci95_low_zero_success_station_fraction,
+                record.ci95_high_zero_success_station_fraction,
+            )
+        },
+    );
+    let cw_max_share = numeric_points(
+        &cw_records,
+        |record| record.cw_min.unwrap_or_default() as f64,
+        |record| {
+            (
+                record.mean_max_station_throughput_share,
+                record.ci95_low_max_station_throughput_share,
+                record.ci95_high_max_station_throughput_share,
             )
         },
     );
@@ -131,28 +228,70 @@ pub fn write_plots(
             )
         },
     );
+    let mixed_zero_success = labeled_points(
+        &mixed_records,
+        |record| {
+            format!(
+                "cw{}-{}",
+                record.lower_cw_min.unwrap_or_default(),
+                record.higher_cw_min.unwrap_or_default()
+            )
+        },
+        |record| {
+            (
+                record.mean_zero_success_station_fraction,
+                record.ci95_low_zero_success_station_fraction,
+                record.ci95_high_zero_success_station_fraction,
+            )
+        },
+    );
+    let mixed_max_share = labeled_points(
+        &mixed_records,
+        |record| {
+            format!(
+                "cw{}-{}",
+                record.lower_cw_min.unwrap_or_default(),
+                record.higher_cw_min.unwrap_or_default()
+            )
+        },
+        |record| {
+            (
+                record.mean_max_station_throughput_share,
+                record.ci95_low_max_station_throughput_share,
+                record.ci95_high_max_station_throughput_share,
+            )
+        },
+    );
 
     let users_output = output_dir.join("users.png");
     let cw_output = output_dir.join("cw.png");
     let mixed_output = output_dir.join("mixed.png");
 
-    draw_dual_line_chart(
+    draw_sweep_chart(
         &users_output,
         "users sweep",
         "users",
-        "average delay (slots)",
-        "throughput (bits/slot)",
-        &users_delay,
-        &users_throughput,
+        SweepMetricPanels {
+            delay: &users_delay,
+            throughput: &users_throughput,
+            fairness: &users_fairness,
+            variance: &users_variance,
+            zero_success: &users_zero_success,
+            max_share: &users_max_share,
+        },
     )?;
-    draw_dual_line_chart(
+    draw_sweep_chart(
         &cw_output,
         "cwmin sweep",
         "cwmin",
-        "average delay (slots)",
-        "throughput (bits/slot)",
-        &cw_delay,
-        &cw_throughput,
+        SweepMetricPanels {
+            delay: &cw_delay,
+            throughput: &cw_throughput,
+            fairness: &cw_fairness,
+            variance: &cw_variance,
+            zero_success: &cw_zero_success,
+            max_share: &cw_max_share,
+        },
     )?;
     draw_mixed_chart(
         &mixed_output,
@@ -160,6 +299,8 @@ pub fn write_plots(
         &mixed_throughput,
         &mixed_fairness,
         &mixed_variance,
+        &mixed_zero_success,
+        &mixed_max_share,
     )?;
 
     Ok(vec![users_output, cw_output, mixed_output])
@@ -225,40 +366,69 @@ fn fairness_points(
     grouped.into_values().collect()
 }
 
-fn draw_dual_line_chart(
+fn draw_sweep_chart(
     output: &Path,
     title: &str,
     x_label: &str,
-    delay_label: &str,
-    throughput_label: &str,
-    delay_points: &[NumericSummaryPoint],
-    throughput_points: &[NumericSummaryPoint],
+    panels: SweepMetricPanels<'_>,
 ) -> Result<()> {
-    ensure!(!delay_points.is_empty(), "delay series must not be empty");
+    ensure!(!panels.delay.is_empty(), "delay series must not be empty");
     ensure!(
-        !throughput_points.is_empty(),
+        !panels.throughput.is_empty(),
         "throughput series must not be empty"
     );
 
-    let root = BitMapBackend::new(output, CHART_SIZE).into_drawing_area();
+    let root = BitMapBackend::new(output, SWEEP_CHART_SIZE).into_drawing_area();
     root.fill(&WHITE)?;
-    let areas = root.split_evenly((1, 2));
+    let areas = root.split_evenly((2, 3));
 
     draw_line_chart(
         &areas[0],
         &format!("{title}: delay"),
         x_label,
-        delay_label,
-        delay_points,
+        "average delay (slots)",
+        panels.delay,
         RED,
     )?;
     draw_line_chart(
         &areas[1],
         &format!("{title}: throughput"),
         x_label,
-        throughput_label,
-        throughput_points,
+        "throughput (bits/slot)",
+        panels.throughput,
         BLUE,
+    )?;
+    draw_line_chart(
+        &areas[2],
+        &format!("{title}: fairness"),
+        x_label,
+        "jain fairness index",
+        panels.fairness,
+        GREEN,
+    )?;
+    draw_line_chart(
+        &areas[3],
+        &format!("{title}: variance"),
+        x_label,
+        "per-station throughput variance",
+        panels.variance,
+        MAGENTA,
+    )?;
+    draw_line_chart(
+        &areas[4],
+        &format!("{title}: zero-success fraction"),
+        x_label,
+        "zero-success station fraction",
+        panels.zero_success,
+        CYAN,
+    )?;
+    draw_line_chart(
+        &areas[5],
+        &format!("{title}: max station share"),
+        x_label,
+        "max station throughput share",
+        panels.max_share,
+        BLACK,
     )?;
 
     root.present()?;
@@ -271,6 +441,8 @@ fn draw_mixed_chart(
     throughput_points: &[LabeledSummaryPoint],
     fairness_points: &[LabeledSummaryPoint],
     variance_points: &[LabeledSummaryPoint],
+    zero_success_points: &[LabeledSummaryPoint],
+    max_share_points: &[LabeledSummaryPoint],
 ) -> Result<()> {
     ensure!(!delay_points.is_empty(), "delay bars must not be empty");
     ensure!(
@@ -280,7 +452,7 @@ fn draw_mixed_chart(
 
     let root = BitMapBackend::new(output, MIXED_CHART_SIZE).into_drawing_area();
     root.fill(&WHITE)?;
-    let areas = root.split_evenly((2, 2));
+    let areas = root.split_evenly((2, 3));
 
     draw_bar_chart(
         &areas[0],
@@ -306,9 +478,23 @@ fn draw_mixed_chart(
     draw_bar_chart(
         &areas[3],
         "mixed classes: throughput variance",
-        "per-user throughput variance",
+        "per-station throughput variance",
         variance_points,
         MAGENTA,
+    )?;
+    draw_bar_chart(
+        &areas[4],
+        "mixed classes: zero-success fraction",
+        "zero-success station fraction",
+        zero_success_points,
+        CYAN,
+    )?;
+    draw_bar_chart(
+        &areas[5],
+        "mixed classes: max station share",
+        "max station throughput share",
+        max_share_points,
+        BLACK,
     )?;
 
     root.present()?;
@@ -477,6 +663,12 @@ mod tests {
             mean_per_user_throughput_variance: 0.02,
             ci95_low_per_user_throughput_variance: 0.01,
             ci95_high_per_user_throughput_variance: 0.03,
+            mean_zero_success_station_fraction: 0.15,
+            ci95_low_zero_success_station_fraction: 0.1,
+            ci95_high_zero_success_station_fraction: 0.2,
+            mean_max_station_throughput_share: 0.35,
+            ci95_low_max_station_throughput_share: 0.3,
+            ci95_high_max_station_throughput_share: 0.4,
         }
     }
 

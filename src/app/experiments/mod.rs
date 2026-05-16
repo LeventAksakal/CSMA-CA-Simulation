@@ -5,7 +5,7 @@ use anyhow::Result;
 use crate::{
     app::output::ExperimentRecord,
     domain::{config::SweepParameters, scenario::Scenario},
-    sim::{run, validate_range_step},
+    sim::run,
 };
 
 use self::seed_schedule::TrialSeedSchedule;
@@ -23,7 +23,7 @@ pub fn sweep_users(
     let mut records = Vec::new();
     let schedule = TrialSeedSchedule::new(params.base_seed, params.trials)?;
 
-    for users in validate_range_step(min_users, max_users, step)? {
+    for users in expand_linear_values(min_users, max_users, step)? {
         records.extend(collect_trial_record_batches(&schedule, |trial, seed| {
             let scenario = standard_scenario(users, cw_min, seed, params);
             let report = run(&scenario)?;
@@ -46,6 +46,12 @@ pub fn sweep_users(
                     collision_attempts: class_metrics.collision_attempts,
                     average_delay_slots: class_metrics.average_delay_slots,
                     throughput_bits_per_slot: class_metrics.throughput_bits_per_slot,
+                    jain_fairness_index: report.aggregate.jain_fairness_index,
+                    per_station_throughput_variance: report
+                        .aggregate
+                        .per_station_throughput_variance,
+                    zero_success_station_fraction: report.aggregate.zero_success_station_fraction,
+                    max_station_throughput_share: report.aggregate.max_station_throughput_share,
                 })
                 .collect())
         })?);
@@ -61,10 +67,19 @@ pub fn sweep_cwmins(
     step: u32,
     params: &SweepParameters,
 ) -> Result<Vec<ExperimentRecord>> {
+    let values = expand_linear_values(min_cw, max_cw, step)?;
+    sweep_cw_values(users, &values, params)
+}
+
+pub fn sweep_cw_values(
+    users: u32,
+    cw_values: &[u32],
+    params: &SweepParameters,
+) -> Result<Vec<ExperimentRecord>> {
     let mut records = Vec::new();
     let schedule = TrialSeedSchedule::new(params.base_seed, params.trials)?;
 
-    for cw_min in validate_range_step(min_cw, max_cw, step)? {
+    for &cw_min in cw_values {
         records.extend(collect_trial_record_batches(&schedule, |trial, seed| {
             let scenario = standard_scenario(users, cw_min, seed, params);
             let report = run(&scenario)?;
@@ -87,6 +102,12 @@ pub fn sweep_cwmins(
                     collision_attempts: class_metrics.collision_attempts,
                     average_delay_slots: class_metrics.average_delay_slots,
                     throughput_bits_per_slot: class_metrics.throughput_bits_per_slot,
+                    jain_fairness_index: report.aggregate.jain_fairness_index,
+                    per_station_throughput_variance: report
+                        .aggregate
+                        .per_station_throughput_variance,
+                    zero_success_station_fraction: report.aggregate.zero_success_station_fraction,
+                    max_station_throughput_share: report.aggregate.max_station_throughput_share,
                 })
                 .collect())
         })?);
@@ -134,6 +155,10 @@ pub fn mixed_classes(
                 collision_attempts: class_metrics.collision_attempts,
                 average_delay_slots: class_metrics.average_delay_slots,
                 throughput_bits_per_slot: class_metrics.throughput_bits_per_slot,
+                jain_fairness_index: report.aggregate.jain_fairness_index,
+                per_station_throughput_variance: report.aggregate.per_station_throughput_variance,
+                zero_success_station_fraction: report.aggregate.zero_success_station_fraction,
+                max_station_throughput_share: report.aggregate.max_station_throughput_share,
             })
             .collect())
     })
@@ -170,6 +195,30 @@ fn mixed_scenario(
             .timing_config(params.total_slots, params.payload_bits),
         params.cw_max,
     )
+}
+
+fn expand_linear_values(start: u32, end: u32, step: u32) -> Result<Vec<u32>> {
+    use anyhow::{anyhow, ensure};
+
+    ensure!(step > 0, "step must be greater than zero");
+    ensure!(
+        start <= end,
+        "range start must be less than or equal to range end"
+    );
+
+    let mut values = Vec::new();
+    let mut current = start;
+
+    while current <= end {
+        values.push(current);
+
+        match current.checked_add(step) {
+            Some(next) if next > current => current = next,
+            _ => return Err(anyhow!("range overflow while expanding values")),
+        }
+    }
+
+    Ok(values)
 }
 
 #[cfg(feature = "rayon")]

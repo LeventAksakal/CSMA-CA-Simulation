@@ -22,6 +22,10 @@ pub struct ExperimentRecord {
     pub collision_attempts: u64,
     pub average_delay_slots: f64,
     pub throughput_bits_per_slot: f64,
+    pub jain_fairness_index: f64,
+    pub per_station_throughput_variance: f64,
+    pub zero_success_station_fraction: f64,
+    pub max_station_throughput_share: f64,
 }
 
 pub fn write_csv<T: Serialize>(path: &Path, records: &[T]) -> Result<()> {

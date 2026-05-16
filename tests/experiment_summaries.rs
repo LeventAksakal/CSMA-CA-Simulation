@@ -29,15 +29,18 @@ fn sweep_users_summary_matches_golden_values() {
 
     let first = &summaries[0];
     assert_eq!(first.total_users, 4);
-    approx_eq(first.mean_average_delay_slots, 17.92525641025641);
-    approx_eq(first.ci95_low_average_delay_slots, 13.735932354717825);
-    approx_eq(first.mean_throughput_bits_per_slot, 251.953125);
+    approx_eq(first.mean_average_delay_slots, 21.268573491655967);
+    approx_eq(first.ci95_low_average_delay_slots, 16.594041732985012);
+    approx_eq(first.mean_throughput_bits_per_slot, 216.796875);
 
     let second = &summaries[1];
     assert_eq!(second.total_users, 8);
-    approx_eq(second.mean_average_delay_slots, 29.018707482993197);
-    approx_eq(second.ci95_high_throughput_bits_per_slot, 287.03125);
-    approx_eq(second.mean_per_user_throughput_bits_per_slot, 35.400390625);
+    approx_eq(second.mean_average_delay_slots, 37.86662644787645);
+    approx_eq(
+        second.ci95_high_throughput_bits_per_slot,
+        219.81141001824165,
+    );
+    approx_eq(second.mean_per_user_throughput_bits_per_slot, 25.390625);
 }
 
 #[test]
@@ -50,13 +53,28 @@ fn sweep_cw_summary_matches_golden_values() {
 
     let lowest = &summaries[0];
     assert_eq!(lowest.cw_min, Some(4));
-    approx_eq(lowest.mean_collision_attempts, 62.0);
-    approx_eq(lowest.mean_throughput_bits_per_slot, 306.640625);
+    approx_eq(lowest.mean_collision_attempts, 49.666666666666664);
+    approx_eq(lowest.mean_throughput_bits_per_slot, 203.125);
 
     let highest = &summaries[2];
     assert_eq!(highest.cw_min, Some(12));
-    approx_eq(highest.mean_average_delay_slots, 30.73859606705351);
-    approx_eq(highest.ci95_low_throughput_bits_per_slot, 257.6818740236144);
+    approx_eq(highest.mean_average_delay_slots, 34.309169983782986);
+    approx_eq(
+        highest.ci95_low_throughput_bits_per_slot,
+        195.18187402361443,
+    );
+}
+
+#[test]
+fn sweep_cw_summary_allows_zero_minimum_window() {
+    let records =
+        experiments::sweep_cwmins(8, 0, 8, 4, &baseline_params()).expect("cw=0 sweep should run");
+    let summaries = summarize_records(&records);
+
+    assert_eq!(summaries.len(), 3);
+    assert_eq!(summaries[0].cw_min, Some(0));
+    assert!(summaries[0].mean_successful_packets > 0.0);
+    assert!(summaries[0].mean_average_delay_slots >= 0.0);
 }
 
 #[test]
@@ -71,16 +89,16 @@ fn mixed_summary_matches_golden_values() {
         .iter()
         .find(|summary| summary.class_name == "higher-cw")
         .expect("higher-cw summary should exist");
-    approx_eq(higher.mean_average_delay_slots, 56.72380952380953);
-    approx_eq(higher.mean_jain_fairness_index, 0.6650949963215028);
+    approx_eq(higher.mean_average_delay_slots, 59.644444444444446);
+    approx_eq(higher.mean_jain_fairness_index, 0.40132968553583526);
 
     let lower = summaries
         .iter()
         .find(|summary| summary.class_name == "lower-cw")
         .expect("lower-cw summary should exist");
-    approx_eq(lower.mean_throughput_bits_per_slot, 255.859375);
+    approx_eq(lower.mean_throughput_bits_per_slot, 197.265625);
     approx_eq(
         lower.ci95_high_per_user_throughput_variance,
-        1031.8700516055744,
+        1888.927983808227,
     );
 }

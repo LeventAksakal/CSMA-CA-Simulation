@@ -85,6 +85,7 @@ fn difs_delays_initial_contention() {
             difs_slots: 2,
             sifs_slots: 0,
             tx_duration_slots: 1,
+            collision_penalty_slots: 4,
         },
         8,
     );
@@ -107,6 +108,7 @@ fn zero_difs_allows_immediate_contention() {
             difs_slots: 0,
             sifs_slots: 0,
             tx_duration_slots: 1,
+            collision_penalty_slots: 4,
         },
         8,
     );
@@ -149,6 +151,7 @@ fn longer_busy_windows_reduce_completed_packets() {
             difs_slots: 0,
             sifs_slots: 0,
             tx_duration_slots: 1,
+            collision_penalty_slots: 1,
         },
         8,
     );
@@ -162,6 +165,7 @@ fn longer_busy_windows_reduce_completed_packets() {
             difs_slots: 0,
             sifs_slots: 2,
             tx_duration_slots: 3,
+            collision_penalty_slots: 5,
         },
         8,
     );

@@ -23,6 +23,7 @@ impl TimingPreset {
                 difs_slots: 1,
                 sifs_slots: 0,
                 tx_duration_slots: 1,
+                collision_penalty_slots: 4,
             },
             Self::ShortDefer => TimingConfig {
                 total_slots,
@@ -30,6 +31,7 @@ impl TimingPreset {
                 difs_slots: 0,
                 sifs_slots: 0,
                 tx_duration_slots: 1,
+                collision_penalty_slots: 4,
             },
             Self::LongTransmission => TimingConfig {
                 total_slots,
@@ -37,15 +39,16 @@ impl TimingPreset {
                 difs_slots: 1,
                 sifs_slots: 1,
                 tx_duration_slots: 3,
+                collision_penalty_slots: 6,
             },
         }
     }
 
     pub fn description(self) -> &'static str {
         match self {
-            Self::Baseline => "difs=1, sifs=0, tx=1",
-            Self::ShortDefer => "difs=0, sifs=0, tx=1",
-            Self::LongTransmission => "difs=1, sifs=1, tx=3",
+            Self::Baseline => "difs=1, sifs=0, tx=1, collision-penalty=4",
+            Self::ShortDefer => "difs=0, sifs=0, tx=1, collision-penalty=4",
+            Self::LongTransmission => "difs=1, sifs=1, tx=3, collision-penalty=6",
         }
     }
 }

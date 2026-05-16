@@ -211,7 +211,6 @@ fn validate_scenario(scenario: &Scenario) -> Result<()> {
             class.users > 0,
             "station classes must contain at least one user"
         );
-        ensure!(class.cw_min > 0, "cw_min must be greater than zero");
         ensure!(
             class.cw_min <= scenario.window.cw_max,
             "cw_min must be less than or equal to cw_max"
@@ -324,7 +323,6 @@ fn handle_collision(
 }
 
 fn sample_backoff(cw: u32, rng: &mut StdRng) -> Result<u32> {
-    ensure!(cw > 0, "contention window must be greater than zero");
     Ok(sample_backoff_unchecked(cw, rng))
 }
 
@@ -375,6 +373,29 @@ fn build_progress_snapshot(
     } else {
         total_delay_slots as f64 / total_successful_packets as f64
     };
+    let station_throughputs: Vec<f64> = stations
+        .iter()
+        .map(|station| {
+            if elapsed_slots == 0 {
+                0.0
+            } else {
+                (station.successful_packets as f64 * scenario.timing.payload_bits as f64)
+                    / elapsed_slots as f64
+            }
+        })
+        .collect();
+    let jain_fairness_index = jain_fairness_index(&station_throughputs);
+    let per_station_throughput_variance = throughput_variance(&station_throughputs);
+    let zero_success_station_fraction = if stations.is_empty() {
+        0.0
+    } else {
+        stations
+            .iter()
+            .filter(|station| station.successful_packets == 0)
+            .count() as f64
+            / stations.len() as f64
+    };
+    let max_station_throughput_share = max_station_share(&station_throughputs);
 
     let mut grouped: BTreeMap<String, (u32, u64, u64, u64)> = BTreeMap::new();
 
@@ -423,9 +444,50 @@ fn build_progress_snapshot(
             collision_events,
             average_delay_slots,
             throughput_bits_per_slot,
+            jain_fairness_index,
+            per_station_throughput_variance,
+            zero_success_station_fraction,
+            max_station_throughput_share,
         },
         per_class,
     }
+}
+
+fn jain_fairness_index(throughputs: &[f64]) -> f64 {
+    if throughputs.is_empty() {
+        return 0.0;
+    }
+
+    let sum = throughputs.iter().sum::<f64>();
+    let sum_sq = throughputs.iter().map(|value| value * value).sum::<f64>();
+
+    if sum_sq == 0.0 {
+        0.0
+    } else {
+        (sum * sum) / (throughputs.len() as f64 * sum_sq)
+    }
+}
+
+fn throughput_variance(throughputs: &[f64]) -> f64 {
+    if throughputs.is_empty() {
+        return 0.0;
+    }
+
+    let mean = throughputs.iter().sum::<f64>() / throughputs.len() as f64;
+    throughputs
+        .iter()
+        .map(|value| (value - mean).powi(2))
+        .sum::<f64>()
+        / throughputs.len() as f64
+}
+
+fn max_station_share(throughputs: &[f64]) -> f64 {
+    let total = throughputs.iter().sum::<f64>();
+    if total == 0.0 {
+        return 0.0;
+    }
+
+    throughputs.iter().copied().fold(0.0, f64::max) / total
 }
 
 #[cfg(test)]
@@ -448,6 +510,7 @@ mod tests {
                 difs_slots: 1,
                 sifs_slots: 0,
                 tx_duration_slots: 0,
+                collision_penalty_slots: 4,
             },
             32,
         );
@@ -467,6 +530,7 @@ mod tests {
                 difs_slots: 0,
                 sifs_slots: 1,
                 tx_duration_slots: 2,
+                collision_penalty_slots: 4,
             },
             8,
         );
@@ -487,6 +551,37 @@ mod tests {
     }
 
     #[test]
+    fn sample_backoff_allows_zero_window() {
+        let mut rng = StdRng::seed_from_u64(7);
+
+        let sample = sample_backoff(0, &mut rng).expect("cw=0 should be valid");
+
+        assert_eq!(sample, 0);
+    }
+
+    #[test]
+    fn zero_cw_min_scenario_runs_as_pathological_case() {
+        let scenario = Scenario::standard(
+            4,
+            0,
+            7,
+            TimingConfig {
+                total_slots: 32,
+                payload_bits: 1_500,
+                difs_slots: 0,
+                sifs_slots: 0,
+                tx_duration_slots: 1,
+                collision_penalty_slots: 4,
+            },
+            31,
+        );
+
+        let result = run(&scenario).expect("cw=0 scenario should run");
+
+        assert!(result.aggregate.collision_events > 0);
+    }
+
+    #[test]
     fn trace_emits_one_frame_per_slot() {
         let scenario = Scenario::standard(
             2,
@@ -498,6 +593,7 @@ mod tests {
                 difs_slots: 0,
                 sifs_slots: 0,
                 tx_duration_slots: 1,
+                collision_penalty_slots: 4,
             },
             7,
         );
@@ -520,6 +616,7 @@ mod tests {
                 difs_slots: 0,
                 sifs_slots: 0,
                 tx_duration_slots: 1,
+                collision_penalty_slots: 4,
             },
             7,
         );

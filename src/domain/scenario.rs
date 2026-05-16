@@ -14,6 +14,7 @@ pub struct TimingConfig {
     pub difs_slots: u32,
     pub sifs_slots: u32,
     pub tx_duration_slots: u32,
+    pub collision_penalty_slots: u32,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

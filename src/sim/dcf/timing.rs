@@ -22,7 +22,10 @@ impl TimingModel {
     }
 
     pub fn busy_slots_after_collision(&self) -> u32 {
-        self.config.tx_duration_slots.saturating_sub(1)
+        self.config
+            .tx_duration_slots
+            .saturating_sub(1)
+            .saturating_add(self.config.collision_penalty_slots)
     }
 }
 
@@ -40,6 +43,7 @@ mod tests {
             difs_slots: 2,
             sifs_slots: 1,
             tx_duration_slots: 3,
+            collision_penalty_slots: 4,
         });
 
         assert_eq!(timing.busy_slots_after_success(), 3);
@@ -53,8 +57,9 @@ mod tests {
             difs_slots: 2,
             sifs_slots: 4,
             tx_duration_slots: 3,
+            collision_penalty_slots: 5,
         });
 
-        assert_eq!(timing.busy_slots_after_collision(), 2);
+        assert_eq!(timing.busy_slots_after_collision(), 7);
     }
 }

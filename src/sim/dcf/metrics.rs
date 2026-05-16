@@ -12,6 +12,13 @@ pub fn build_report(
     stations: Vec<StationRuntime>,
     collision_events: u64,
 ) -> SimulationReport {
+    let station_throughputs: Vec<f64> = stations
+        .iter()
+        .map(|station| {
+            (station.successful_packets as f64 * scenario.timing.payload_bits as f64)
+                / scenario.timing.total_slots as f64
+        })
+        .collect();
     let total_successful_packets = stations
         .iter()
         .map(|station| station.successful_packets)
@@ -28,6 +35,18 @@ pub fn build_report(
     } else {
         total_delay_slots as f64 / total_successful_packets as f64
     };
+    let jain_fairness_index = jain_fairness_index(&station_throughputs);
+    let per_station_throughput_variance = throughput_variance(&station_throughputs);
+    let zero_success_station_fraction = if stations.is_empty() {
+        0.0
+    } else {
+        stations
+            .iter()
+            .filter(|station| station.successful_packets == 0)
+            .count() as f64
+            / stations.len() as f64
+    };
+    let max_station_throughput_share = max_station_share(&station_throughputs);
 
     let mut grouped: BTreeMap<String, (u32, u64, u64, u64)> = BTreeMap::new();
 
@@ -72,7 +91,48 @@ pub fn build_report(
             collision_events,
             average_delay_slots,
             throughput_bits_per_slot,
+            jain_fairness_index,
+            per_station_throughput_variance,
+            zero_success_station_fraction,
+            max_station_throughput_share,
         },
         per_class,
     }
+}
+
+fn jain_fairness_index(throughputs: &[f64]) -> f64 {
+    if throughputs.is_empty() {
+        return 0.0;
+    }
+
+    let sum = throughputs.iter().sum::<f64>();
+    let sum_sq = throughputs.iter().map(|value| value * value).sum::<f64>();
+
+    if sum_sq == 0.0 {
+        0.0
+    } else {
+        (sum * sum) / (throughputs.len() as f64 * sum_sq)
+    }
+}
+
+fn throughput_variance(throughputs: &[f64]) -> f64 {
+    if throughputs.is_empty() {
+        return 0.0;
+    }
+
+    let mean = throughputs.iter().sum::<f64>() / throughputs.len() as f64;
+    throughputs
+        .iter()
+        .map(|value| (value - mean).powi(2))
+        .sum::<f64>()
+        / throughputs.len() as f64
+}
+
+fn max_station_share(throughputs: &[f64]) -> f64 {
+    let total = throughputs.iter().sum::<f64>();
+    if total == 0.0 {
+        return 0.0;
+    }
+
+    throughputs.iter().copied().fold(0.0, f64::max) / total
 }

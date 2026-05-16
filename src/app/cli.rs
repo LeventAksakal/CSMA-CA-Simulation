@@ -68,11 +68,13 @@ enum Command {
         #[arg(long)]
         users: u32,
         #[arg(long)]
-        min_cw: u32,
+        min_cw: Option<u32>,
         #[arg(long)]
-        max_cw: u32,
+        max_cw: Option<u32>,
         #[arg(long, default_value_t = 4)]
         step: u32,
+        #[arg(long, value_delimiter = ',', num_args = 1..)]
+        cw_values: Option<Vec<u32>>,
         #[arg(long, default_value_t = 1024)]
         cw_max: u32,
         #[arg(long, default_value_t = 20_000)]
@@ -243,6 +245,7 @@ pub fn run() -> Result<()> {
             min_cw,
             max_cw,
             step,
+            cw_values,
             cw_max,
             slots,
             payload_bits,
@@ -253,7 +256,8 @@ pub fn run() -> Result<()> {
         } => {
             let params =
                 build_sweep_parameters(cw_max, slots, payload_bits, trials, seed, timing_preset)?;
-            let records = experiments::sweep_cwmins(users, min_cw, max_cw, step, &params)?;
+            let cw_values = resolve_cw_sweep_values(min_cw, max_cw, step, cw_values)?;
+            let records = experiments::sweep_cw_values(users, &cw_values, &params)?;
             let summary_records = summarize_records(&records);
             let summary_output = summary::summary_output_path(&output);
             write_csv(&output, &records)?;
@@ -352,6 +356,44 @@ pub fn run() -> Result<()> {
     Ok(())
 }
 
+fn resolve_cw_sweep_values(
+    min_cw: Option<u32>,
+    max_cw: Option<u32>,
+    step: u32,
+    cw_values: Option<Vec<u32>>,
+) -> Result<Vec<u32>> {
+    if let Some(cw_values) = cw_values {
+        ensure!(!cw_values.is_empty(), "cw-values must not be empty");
+        return Ok(cw_values);
+    }
+
+    if min_cw.is_none() && max_cw.is_none() {
+        return Ok(vec![0, 2, 4, 8, 16, 32, 64]);
+    }
+
+    let min_cw = min_cw.unwrap_or(0);
+    let max_cw = max_cw.unwrap_or(64);
+    ensure!(step > 0, "step must be greater than zero");
+    ensure!(
+        min_cw <= max_cw,
+        "min-cw must be less than or equal to max-cw"
+    );
+
+    let mut values = Vec::new();
+    let mut current = min_cw;
+
+    while current <= max_cw {
+        values.push(current);
+
+        match current.checked_add(step) {
+            Some(next) if next > current => current = next,
+            _ => break,
+        }
+    }
+
+    Ok(values)
+}
+
 fn build_sweep_parameters(
     cw_max: u32,
     total_slots: u64,
@@ -370,4 +412,25 @@ fn build_sweep_parameters(
         base_seed,
         timing_preset,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_cw_sweep_values;
+
+    #[test]
+    fn cw_sweep_defaults_to_seeded_values_range() {
+        let values = resolve_cw_sweep_values(None, None, 8, None)
+            .expect("default cw sweep values should expand");
+
+        assert_eq!(values, vec![0, 2, 4, 8, 16, 32, 64]);
+    }
+
+    #[test]
+    fn cw_sweep_accepts_explicit_seeded_values() {
+        let values = resolve_cw_sweep_values(None, None, 8, Some(vec![0, 2, 4, 8, 16, 32, 64]))
+            .expect("explicit cw values should be accepted");
+
+        assert_eq!(values, vec![0, 2, 4, 8, 16, 32, 64]);
+    }
 }

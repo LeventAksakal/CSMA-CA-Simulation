@@ -37,6 +37,12 @@ pub struct ExperimentSummaryRecord {
     pub mean_per_user_throughput_variance: f64,
     pub ci95_low_per_user_throughput_variance: f64,
     pub ci95_high_per_user_throughput_variance: f64,
+    pub mean_zero_success_station_fraction: f64,
+    pub ci95_low_zero_success_station_fraction: f64,
+    pub ci95_high_zero_success_station_fraction: f64,
+    pub mean_max_station_throughput_share: f64,
+    pub ci95_low_max_station_throughput_share: f64,
+    pub ci95_high_max_station_throughput_share: f64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -51,6 +57,8 @@ struct Stats {
 struct FairnessMetric {
     jain_fairness_index: f64,
     per_user_throughput_variance: f64,
+    zero_success_station_fraction: f64,
+    max_station_throughput_share: f64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -143,6 +151,12 @@ pub fn summarize_records(records: &[ExperimentRecord]) -> Vec<ExperimentSummaryR
                 mean_per_user_throughput_variance: fairness.1.mean,
                 ci95_low_per_user_throughput_variance: fairness.1.ci_low,
                 ci95_high_per_user_throughput_variance: fairness.1.ci_high,
+                mean_zero_success_station_fraction: fairness.2.mean,
+                ci95_low_zero_success_station_fraction: fairness.2.ci_low,
+                ci95_high_zero_success_station_fraction: fairness.2.ci_high,
+                mean_max_station_throughput_share: fairness.3.mean,
+                ci95_low_max_station_throughput_share: fairness.3.ci_low,
+                ci95_high_max_station_throughput_share: fairness.3.ci_high,
             }
         })
         .collect()
@@ -181,7 +195,9 @@ pub fn summary_output_path(raw_output: &Path) -> PathBuf {
     }
 }
 
-fn fairness_stats_by_parent(records: &[ExperimentRecord]) -> BTreeMap<ParentKey, (Stats, Stats)> {
+fn fairness_stats_by_parent(
+    records: &[ExperimentRecord],
+) -> BTreeMap<ParentKey, (Stats, Stats, Stats, Stats)> {
     let mut grouped_trials: BTreeMap<TrialKey, Vec<&ExperimentRecord>> = BTreeMap::new();
 
     for record in records {
@@ -212,50 +228,44 @@ fn fairness_stats_by_parent(records: &[ExperimentRecord]) -> BTreeMap<ParentKey,
                     .iter()
                     .map(|metric| metric.per_user_throughput_variance),
             );
-            (parent, (clamp_unit_stats(jain), variance))
+            let zero_success_fraction = summarize_values(
+                metrics
+                    .iter()
+                    .map(|metric| metric.zero_success_station_fraction),
+            );
+            let max_station_share = summarize_values(
+                metrics
+                    .iter()
+                    .map(|metric| metric.max_station_throughput_share),
+            );
+            (
+                parent,
+                (
+                    clamp_unit_stats(jain),
+                    variance,
+                    clamp_unit_stats(zero_success_fraction),
+                    clamp_unit_stats(max_station_share),
+                ),
+            )
         })
         .collect()
 }
 
 fn fairness_metric(records: &[&ExperimentRecord]) -> FairnessMetric {
-    let total_users: u32 = records.iter().map(|record| record.class_users).sum();
-    if total_users == 0 {
+    let Some(record) = records.first() else {
         return FairnessMetric {
             jain_fairness_index: 0.0,
             per_user_throughput_variance: 0.0,
+            zero_success_station_fraction: 0.0,
+            max_station_throughput_share: 0.0,
         };
-    }
-
-    let mut sum = 0.0;
-    let mut sum_sq = 0.0;
-
-    for record in records {
-        let per_user = record.throughput_bits_per_slot / record.class_users.max(1) as f64;
-        let users = record.class_users as f64;
-        sum += users * per_user;
-        sum_sq += users * per_user * per_user;
-    }
-
-    let count = total_users as f64;
-    let mean = sum / count;
-    let variance = records
-        .iter()
-        .map(|record| {
-            let per_user = record.throughput_bits_per_slot / record.class_users.max(1) as f64;
-            record.class_users as f64 * (per_user - mean).powi(2)
-        })
-        .sum::<f64>()
-        / count;
-
-    let jain = if sum_sq == 0.0 {
-        0.0
-    } else {
-        (sum * sum) / (count * sum_sq)
     };
 
     FairnessMetric {
-        jain_fairness_index: jain,
-        per_user_throughput_variance: variance,
+        jain_fairness_index: record.jain_fairness_index,
+        per_user_throughput_variance: record.per_station_throughput_variance,
+        zero_success_station_fraction: record.zero_success_station_fraction,
+        max_station_throughput_share: record.max_station_throughput_share,
     }
 }
 
@@ -305,8 +315,20 @@ fn clamp_unit_stats(stats: Stats) -> Stats {
     }
 }
 
-fn default_fairness_stats() -> (Stats, Stats) {
+fn default_fairness_stats() -> (Stats, Stats, Stats, Stats) {
     (
+        Stats {
+            mean: 0.0,
+            stddev: 0.0,
+            ci_low: 0.0,
+            ci_high: 0.0,
+        },
+        Stats {
+            mean: 0.0,
+            stddev: 0.0,
+            ci_low: 0.0,
+            ci_high: 0.0,
+        },
         Stats {
             mean: 0.0,
             stddev: 0.0,
@@ -387,6 +409,10 @@ mod tests {
             collision_attempts: 2,
             average_delay_slots: delay,
             throughput_bits_per_slot: throughput,
+            jain_fairness_index: 0.8,
+            per_station_throughput_variance: 1.25,
+            zero_success_station_fraction: 0.2,
+            max_station_throughput_share: 0.45,
         }
     }
 
@@ -408,6 +434,8 @@ mod tests {
         assert_eq!(lower.trials, 2);
         assert!(lower.mean_jain_fairness_index < 1.0);
         assert!(lower.mean_per_user_throughput_variance > 0.0);
+        assert!(lower.mean_zero_success_station_fraction > 0.0);
+        assert!(lower.mean_max_station_throughput_share > 0.0);
         assert_eq!(lower.mean_average_delay_slots, 11.0);
     }
 
