@@ -2,9 +2,9 @@ use std::{fs, path::Path};
 
 use anyhow::Result;
 use csv::Writer;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ExperimentRecord {
     pub scenario: String,
     pub trial: u32,

@@ -4,7 +4,7 @@ use anyhow::{Result, ensure};
 use clap::{Parser, Subcommand};
 
 use crate::{
-    app::{experiments, output::write_csv},
+    app::{experiments, output::write_csv, plot},
     domain::config::{SimulationConfig, SimulationSettings, SweepParameters},
     sim::simulate,
 };
@@ -97,6 +97,16 @@ enum Command {
         seed: u64,
         #[arg(long)]
         output: PathBuf,
+    },
+    Plot {
+        #[arg(long)]
+        users_input: PathBuf,
+        #[arg(long)]
+        cw_input: PathBuf,
+        #[arg(long)]
+        mixed_input: PathBuf,
+        #[arg(long)]
+        output_dir: PathBuf,
     },
 }
 
@@ -209,6 +219,18 @@ pub fn run() -> Result<()> {
             )?;
             write_csv(&output, &records)?;
             println!("wrote {} records to {}", records.len(), output.display());
+        }
+        Command::Plot {
+            users_input,
+            cw_input,
+            mixed_input,
+            output_dir,
+        } => {
+            let outputs = plot::write_plots(&users_input, &cw_input, &mixed_input, &output_dir)?;
+
+            for output in outputs {
+                println!("wrote {}", output.display());
+            }
         }
     }
 

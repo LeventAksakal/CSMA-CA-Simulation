@@ -205,14 +205,16 @@ fn sample_backoff(cw: u32, rng: &mut StdRng) -> Result<u32> {
 }
 
 fn sample_backoff_unchecked(cw: u32, rng: &mut StdRng) -> u32 {
-    rng.random_range(0..cw)
+    rng.random_range(0..=cw)
 }
 
 #[cfg(test)]
 mod tests {
+    use rand::{SeedableRng, rngs::StdRng};
+
     use crate::domain::scenario::{Scenario, TimingConfig};
 
-    use super::{run, validate_scenario};
+    use super::{run, sample_backoff, validate_scenario};
 
     #[test]
     fn validation_rejects_zero_tx_duration() {
@@ -252,5 +254,15 @@ mod tests {
         let result = run(&scenario).expect("scenario should run");
 
         assert_eq!(result.aggregate.total_successful_packets, 1);
+    }
+
+    #[test]
+    fn sample_backoff_can_hit_inclusive_upper_bound() {
+        let saw_upper_bound = (0_u64..64).any(|seed| {
+            let mut rng = StdRng::seed_from_u64(seed);
+            sample_backoff(1, &mut rng).expect("cw=1 should be valid") == 1
+        });
+
+        assert!(saw_upper_bound);
     }
 }

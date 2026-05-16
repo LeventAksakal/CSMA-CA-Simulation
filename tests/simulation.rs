@@ -99,7 +99,7 @@ fn zero_difs_allows_immediate_contention() {
         1,
         5,
         TimingConfig {
-            total_slots: 1,
+            total_slots: 2,
             payload_bits: 1_500,
             difs_slots: 0,
             sifs_slots: 0,
@@ -110,5 +110,63 @@ fn zero_difs_allows_immediate_contention() {
 
     let result = run(&scenario).expect("scenario without DIFS should run");
 
-    assert_eq!(result.aggregate.total_successful_packets, 1);
+    assert!(result.aggregate.total_successful_packets > 0);
+    assert_eq!(result.aggregate.collision_events, 0);
+}
+
+#[test]
+fn collisions_eventually_recover_via_backoff_growth() {
+    let config = SimulationConfig::standard(
+        2,
+        1,
+        SimulationSettings {
+            total_slots: 40,
+            payload_bits: 1_500,
+            cw_max: 7,
+            seed: 2,
+        },
+    );
+
+    let result = simulate(&config).expect("two-user recovery scenario should run");
+
+    assert!(result.aggregate.collision_events > 0);
+    assert!(result.aggregate.total_successful_packets > 0);
+}
+
+#[test]
+fn longer_busy_windows_reduce_completed_packets() {
+    let short_busy = Scenario::standard(
+        1,
+        1,
+        5,
+        TimingConfig {
+            total_slots: 8,
+            payload_bits: 1_500,
+            difs_slots: 0,
+            sifs_slots: 0,
+            tx_duration_slots: 1,
+        },
+        8,
+    );
+    let long_busy = Scenario::standard(
+        1,
+        1,
+        5,
+        TimingConfig {
+            total_slots: 8,
+            payload_bits: 1_500,
+            difs_slots: 0,
+            sifs_slots: 2,
+            tx_duration_slots: 3,
+        },
+        8,
+    );
+
+    let short_result = run(&short_busy).expect("short busy scenario should run");
+    let long_result = run(&long_busy).expect("long busy scenario should run");
+
+    assert!(
+        short_result.aggregate.total_successful_packets
+            > long_result.aggregate.total_successful_packets
+    );
 }

@@ -1,6 +1,6 @@
 # CSMA-CA Simulation
 
-Rust-first simulator for a CSMA/CA coursework project. The repository is set up for CLI-driven development, reproducible experiment runs, CSV result export, and agent-assisted iteration inside VS Code.
+Rust-first simulator for a CSMA/CA coursework project. The repository now covers an explicit slot-based DCF study model, reproducible experiment sweeps, CSV export, PNG plotting, and end-to-end behavioral tests around the core medium-access rules.
 
 ## Bootstrap
 
@@ -41,15 +41,33 @@ Run the mixed-class scenario where one class starts with a lower CWmin:
 cargo run -- mixed-classes --lower-users 10 --higher-users 10 --lower-cw-min 8 --higher-cw-min 32 --trials 10 --output results/mixed.csv
 ```
 
+Render plots from previously generated CSV files:
+
+```powershell
+cargo run -- plot --users-input results/users.csv --cw-input results/cw.csv --mixed-input results/mixed.csv --output-dir results/plots
+```
+
+Run the full workflow from validated simulator outputs to plots:
+
+```powershell
+cargo test
+cargo run -- sweep-users --min-users 10 --max-users 50 --step 10 --cw-min 16 --trials 10 --output results/users.csv
+cargo run -- sweep-cw --users 20 --min-cw 8 --max-cw 64 --step 8 --trials 10 --output results/cw.csv
+cargo run -- mixed-classes --lower-users 10 --higher-users 10 --lower-cw-min 8 --higher-cw-min 32 --trials 10 --output results/mixed.csv
+cargo run -- plot --users-input results/users.csv --cw-input results/cw.csv --mixed-input results/mixed.csv --output-dir results/plots
+```
+
 ## Project Layout
 
-- `src/config.rs`: simulation and experiment configuration types.
-- `src/model.rs`: station state and transmission outcomes.
-- `src/simulator.rs`: slot-by-slot CSMA/CA execution.
-- `src/metrics.rs`: aggregate and per-class metrics.
-- `src/experiments.rs`: parameter sweeps and mixed-class studies.
-- `src/output.rs`: CSV serialization.
-- `src/cli.rs`: command-line entry points.
+- `src/app/cli.rs`: CLI entry points for single runs, sweeps, mixed-class studies, and plotting.
+- `src/app/experiments/mod.rs`: parameter sweeps and mixed-class orchestration.
+- `src/app/output.rs`: CSV serialization format shared by experiment export and plotting.
+- `src/app/plot.rs`: CSV aggregation and PNG chart rendering.
+- `src/domain/config.rs`: user-facing simulation configuration types.
+- `src/domain/scenario.rs`: explicit scenario, class, timing, and contention-window inputs.
+- `src/domain/report.rs`: aggregate and per-class report types.
+- `src/sim/runner.rs`: simulator entry points for config-based and scenario-based execution.
+- `src/sim/dcf/`: explicit DCF engine, backoff, timing, medium, station state, and metrics logic.
 - `tests/simulation.rs`: deterministic and behavioral tests.
 - `docs/reference/IEEE-80211-2024.txt`: plain-text repository CSMA/CA behavior specification derived from public sources, with the official IEEE 802.11-2024 standard identified as the normative standard family reference.
 
@@ -63,6 +81,38 @@ This is a slotted CSMA/CA study model inspired by 802.11 DCF rather than a packe
 - comparative advantage of a lower-CWmin class.
 
 The repository behavior spec is tracked at `docs/reference/IEEE-80211-2024.txt`. It is a practical derived spec for implementation work, not a verbatim copy of the IEEE standard.
+
+## DCF Coverage
+
+The implemented simulator behavior is intentionally explicit and audit-friendly. The current baseline includes:
+
+- physical carrier sensing over one shared collision domain,
+- DIFS-style defer before contention,
+- random backoff with freeze/resume while the medium is busy,
+- binary exponential contention-window growth after collision,
+- CW reset after success,
+- deterministic seeded execution,
+- aggregate and per-class delay/throughput reporting.
+
+The repository does not claim exact IEEE clause-level conformance. It is a validated CSMA/CA study model aligned to the local behavior spec in `docs/reference/IEEE-80211-2024.txt`.
+
+## Output Artifacts
+
+The sweep commands emit per-trial CSV records. The plot command consumes those CSVs and writes three PNG artifacts:
+
+- `results/plots/users.png`: average delay and throughput versus user count.
+- `results/plots/cw.png`: average delay and throughput versus CWmin.
+- `results/plots/mixed.png`: average delay and throughput comparison for the lower-CW and higher-CW classes.
+
+With the default commands above, the expected trend is:
+
+- delay increases as user count grows,
+- throughput decreases as CWmin grows,
+- the lower-CW class has lower delay and higher throughput than the higher-CW class.
+
+## Validation Notes
+
+The repository includes both unit coverage for DCF subcomponents and integration coverage for end-to-end simulator behavior, including deterministic replay, DIFS gating, collision recovery via CW growth, and mixed-class advantage.
 
 ## Quality Gates
 
