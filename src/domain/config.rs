@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::domain::scenario::{Scenario, StationClass, TimingConfig, WindowConfig};
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct StationClassConfig {
     pub name: String,
@@ -68,6 +70,31 @@ impl SimulationConfig {
 
     pub fn total_users(&self) -> u32 {
         self.classes.iter().map(|class| class.users).sum()
+    }
+
+    pub fn to_scenario(&self) -> Scenario {
+        Scenario {
+            seed: self.seed,
+            timing: TimingConfig {
+                total_slots: self.total_slots,
+                payload_bits: self.payload_bits,
+                difs_slots: 1,
+                sifs_slots: 0,
+                tx_duration_slots: 1,
+            },
+            window: WindowConfig {
+                cw_max: self.cw_max,
+            },
+            classes: self
+                .classes
+                .iter()
+                .map(|class| StationClass {
+                    name: class.name.clone(),
+                    users: class.users,
+                    cw_min: class.cw_min,
+                })
+                .collect(),
+        }
     }
 }
 

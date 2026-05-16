@@ -1,7 +1,7 @@
 use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
-pub struct AggregateMetrics {
+pub struct AggregateReport {
     pub total_successful_packets: u64,
     pub collision_events: u64,
     pub average_delay_slots: f64,
@@ -9,7 +9,7 @@ pub struct AggregateMetrics {
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
-pub struct ClassMetrics {
+pub struct ClassReport {
     pub class_name: String,
     pub users: u32,
     pub successful_packets: u64,
@@ -19,9 +19,9 @@ pub struct ClassMetrics {
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
-pub struct SimulationResult {
+pub struct SimulationReport {
     pub total_slots: u64,
     pub payload_bits: u64,
-    pub aggregate: AggregateMetrics,
-    pub per_class: Vec<ClassMetrics>,
+    pub aggregate: AggregateReport,
+    pub per_class: Vec<ClassReport>,
 }

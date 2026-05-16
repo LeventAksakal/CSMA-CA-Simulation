@@ -1,6 +1,5 @@
 use csma_ca_simulation::{
-    config::{SimulationConfig, SimulationSettings},
-    simulator::simulate,
+    Scenario, SimulationConfig, SimulationSettings, TimingConfig, run, simulate,
 };
 
 #[test]
@@ -69,4 +68,47 @@ fn lower_cw_class_has_better_mixed_class_outcome() {
 
     assert!(lower.throughput_bits_per_slot > higher.throughput_bits_per_slot);
     assert!(lower.average_delay_slots < higher.average_delay_slots);
+}
+
+#[test]
+fn difs_delays_initial_contention() {
+    let scenario = Scenario::standard(
+        1,
+        1,
+        5,
+        TimingConfig {
+            total_slots: 2,
+            payload_bits: 1_500,
+            difs_slots: 2,
+            sifs_slots: 0,
+            tx_duration_slots: 1,
+        },
+        8,
+    );
+
+    let result = run(&scenario).expect("scenario with DIFS should run");
+
+    assert_eq!(result.aggregate.total_successful_packets, 0);
+    assert_eq!(result.aggregate.collision_events, 0);
+}
+
+#[test]
+fn zero_difs_allows_immediate_contention() {
+    let scenario = Scenario::standard(
+        1,
+        1,
+        5,
+        TimingConfig {
+            total_slots: 1,
+            payload_bits: 1_500,
+            difs_slots: 0,
+            sifs_slots: 0,
+            tx_duration_slots: 1,
+        },
+        8,
+    );
+
+    let result = run(&scenario).expect("scenario without DIFS should run");
+
+    assert_eq!(result.aggregate.total_successful_packets, 1);
 }

@@ -1,3 +1,3 @@
 fn main() -> anyhow::Result<()> {
-    csma_ca_simulation::cli::run()
+    csma_ca_simulation::app::cli::run()
 }

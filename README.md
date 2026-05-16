@@ -51,6 +51,7 @@ cargo run -- mixed-classes --lower-users 10 --higher-users 10 --lower-cw-min 8 -
 - `src/output.rs`: CSV serialization.
 - `src/cli.rs`: command-line entry points.
 - `tests/simulation.rs`: deterministic and behavioral tests.
+- `docs/reference/IEEE-80211-2024.txt`: plain-text repository CSMA/CA behavior specification derived from public sources, with the official IEEE 802.11-2024 standard identified as the normative standard family reference.
 
 ## Model Scope
 
@@ -60,6 +61,8 @@ This is a slotted CSMA/CA study model inspired by 802.11 DCF rather than a packe
 - collision handling and CW expansion,
 - delay and throughput trends,
 - comparative advantage of a lower-CWmin class.
+
+The repository behavior spec is tracked at `docs/reference/IEEE-80211-2024.txt`. It is a practical derived spec for implementation work, not a verbatim copy of the IEEE standard.
 
 ## Quality Gates
 

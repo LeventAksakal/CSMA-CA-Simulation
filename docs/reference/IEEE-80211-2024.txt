@@ -1,0 +1,172 @@
+CSMA/CA DCF behavior reference for this repository
+
+Official standard family reference:
+IEEE 802.11-2024
+IEEE Standard for Information Technology--Telecommunications and Information Exchange between Systems Local and Metropolitan Area Networks--Specific Requirements Part 11: Wireless LAN Medium Access Control (MAC) and Physical Layer (PHY) Specifications
+Official page: https://standards.ieee.org/ieee/802.11/10548
+Status on the IEEE page: Active Standard
+Published on the IEEE page: 2025-04-28
+
+Important note:
+This file is not the raw IEEE standard text. The IEEE text is copyrighted and access-controlled. This file is a plain-text repository specification derived from public descriptions of CSMA/CA and 802.11 DCF behavior so the project has a concrete implementation target.
+
+Public behavior sources consulted:
+1. IEEE 802.11-2024 public standards page for title, status, and scope.
+2. Wikipedia article "Carrier-sense multiple access with collision avoidance" for high-level CSMA/CA behavior, ACK-based collision inference, and RTS/CTS context.
+3. Wikipedia article "Distributed coordination function" for DCF concepts such as DIFS, random backoff, ACKs, and optional RTS/CTS.
+4. Emory University lecture note "The back off procedure" for public explanation of binary exponential backoff and example CWmin/CWmax values.
+5. ShareTechnote page "DCF(Distributed Coordination Function)" for public explanation of DIFS, SIFS, and one DCF transmission cycle.
+
+Repository usage rule:
+Treat this file as the local behavior specification for the simulator until specific IEEE clauses are available. Do not claim exact IEEE 802.11 conformance from this file alone.
+
+Section 1. Goal
+
+Implement a deterministic slot-based CSMA/CA simulator inspired by IEEE 802.11 DCF. The simulator should model medium contention, random backoff, successful transmission, collision inference, retransmission behavior, and comparative delay and throughput outcomes under shared-medium contention.
+
+Section 2. Scope
+
+In scope:
+- physical carrier sensing of a shared medium as idle or busy
+- DCF-style contention before transmission
+- idle-medium waiting interval represented by a configurable interframe defer period
+- random backoff before transmission attempts
+- freezing backoff while the medium is busy
+- success detection through successful transmission outcome or modeled ACK reception
+- collision inference when multiple stations transmit together or ACK is absent
+- contention-window growth after failure and reset after success
+- aggregate throughput and average delay metrics
+
+Out of scope for this repository baseline:
+- exact PHY waveform behavior
+- hidden-node topology modeling unless explicitly added later
+- detailed NAV state machine
+- exact RTS/CTS frame exchange timing
+- rate adaptation, aggregation, block ACK, or multi-link behavior
+- claims of strict standards conformance
+
+Section 3. Medium access behavior
+
+The medium is shared by all stations in one collision domain.
+
+A station with a pending frame must first sense whether the medium is idle.
+
+If the medium is busy, the station defers and does not begin a new transmission.
+
+If the medium is idle for the required defer interval, the station becomes eligible to continue into backoff handling.
+
+The defer interval should be represented explicitly in the simulator even if it is simplified to a slot count rather than a real-time duration.
+
+Section 4. Contention and backoff
+
+Each station maintains a current contention window.
+
+On a fresh attempt, the station samples a random backoff counter from the inclusive range:
+0 .. current_cw
+
+The backoff counter decreases only during eligible idle contention slots.
+
+If the medium becomes busy while a station is counting down backoff, the station freezes its counter.
+
+When the medium becomes idle again and the defer interval is satisfied, the station resumes countdown from the frozen value rather than drawing a new counter.
+
+When the backoff counter reaches zero, the station attempts transmission.
+
+Section 5. Success and failure
+
+If exactly one station transmits in a transmission opportunity, the attempt is treated as successful.
+
+After a successful transmission:
+- the transmitted frame is counted as delivered
+- delay accumulated for that frame is recorded
+- the station resets its contention window to CWmin
+- the next pending frame, if any, starts a new defer-and-backoff cycle
+
+If two or more stations transmit in the same transmission opportunity, the event is treated as a collision.
+
+In a packet-oriented interpretation of DCF, a sender would normally infer failure from missing ACK reception. In this simulator, it is acceptable to model collisions directly when simultaneous transmissions occur.
+
+Section 6. Contention window update rule
+
+The simulator should use binary exponential backoff behavior.
+
+Recommended update rule after a failed attempt:
+current_cw = min(CWmax, 2 * current_cw + 1)
+
+Recommended reset rule after a successful attempt:
+current_cw = CWmin
+
+Public example values seen in public 802.11 explanations:
+- CWmin = 31 in some 802.11b examples
+- CWmin = 15 in some 802.11g examples
+- CWmax = 1023 in common public examples
+
+These example values are useful defaults, but the simulator should keep them configurable.
+
+Section 7. Interframe timing model
+
+DCF public descriptions commonly distinguish at least these timing concepts:
+- SIFS, a short waiting period used around immediate control responses such as ACK
+- DIFS, a longer idle-medium waiting period before ordinary contention begins
+- slot time, the unit used by the backoff counter
+
+For the simulator baseline, it is acceptable to represent these as configurable logical slot counts rather than exact microsecond values.
+
+Minimum behavior requirement:
+- a sender must not contend immediately after any busy period ends
+- an idle-medium defer interval must be satisfied before new contention countdown proceeds
+
+Section 8. Optional RTS/CTS behavior
+
+Public sources consistently describe RTS/CTS as optional.
+
+Therefore RTS/CTS must not be required for the repository baseline.
+
+If added later, it should be modeled as an optional extension used to reduce, but not eliminate, hidden-node-related collisions.
+
+Section 9. Reference state-machine sketch
+
+Station states for the baseline simulator may be represented as:
+- waiting_for_medium
+- defer_interval
+- backoff_countdown
+- transmitting
+- awaiting_ack_or_result
+- collision_recovery
+
+Suggested transition sketch:
+1. waiting_for_medium -> defer_interval when the medium becomes idle and a frame is pending
+2. defer_interval -> backoff_countdown after the configured defer period completes
+3. backoff_countdown -> transmitting when backoff reaches zero during an eligible idle slot
+4. backoff_countdown -> backoff_countdown with frozen counter while the medium is busy
+5. transmitting -> awaiting_ack_or_result immediately after transmission
+6. awaiting_ack_or_result -> waiting_for_medium on success, with CW reset to CWmin
+7. awaiting_ack_or_result -> collision_recovery on failure or collision inference
+8. collision_recovery -> waiting_for_medium after CW update and retry preparation
+
+Section 10. Metrics required by this repository
+
+At minimum the simulator should report:
+- total successful packets
+- total collision events or collision attempts
+- average packet delay
+- throughput in bits per simulated slot or another explicitly documented unit
+- per-class or per-group metrics when multiple user groups are configured
+
+Section 11. Baseline implementation contract for this repo
+
+The repository implementation should satisfy these rules:
+1. deterministic seeded execution
+2. explicit and auditable contention-window handling
+3. clear handling of backoff freeze and resume behavior
+4. configurable CWmin and CWmax
+5. no hidden magic constants for timing or contention behavior
+6. any simplification relative to the full IEEE standard must be documented as a simulator assumption
+
+Section 12. Status of this file
+
+This file is a practical implementation specification for the repository.
+
+It is sufficient to guide a study-model implementation of CSMA/CA behavior.
+
+It is not a substitute for the copyrighted IEEE 802.11 standard if exact clause-level standards conformance is required later.

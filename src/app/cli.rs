@@ -4,10 +4,9 @@ use anyhow::{Result, ensure};
 use clap::{Parser, Subcommand};
 
 use crate::{
-    config::{SimulationConfig, SimulationSettings, SweepParameters},
-    experiments::{mixed_classes, sweep_cwmins, sweep_users},
-    output::write_csv,
-    simulator::simulate,
+    app::{experiments, output::write_csv},
+    domain::config::{SimulationConfig, SimulationSettings, SweepParameters},
+    sim::simulate,
 };
 
 #[derive(Debug, Parser)]
@@ -167,7 +166,7 @@ pub fn run() -> Result<()> {
             output,
         } => {
             let params = build_sweep_parameters(cw_max, slots, payload_bits, trials, seed)?;
-            let records = sweep_users(min_users, max_users, step, cw_min, &params)?;
+            let records = experiments::sweep_users(min_users, max_users, step, cw_min, &params)?;
             write_csv(&output, &records)?;
             println!("wrote {} records to {}", records.len(), output.display());
         }
@@ -184,7 +183,7 @@ pub fn run() -> Result<()> {
             output,
         } => {
             let params = build_sweep_parameters(cw_max, slots, payload_bits, trials, seed)?;
-            let records = sweep_cwmins(users, min_cw, max_cw, step, &params)?;
+            let records = experiments::sweep_cwmins(users, min_cw, max_cw, step, &params)?;
             write_csv(&output, &records)?;
             println!("wrote {} records to {}", records.len(), output.display());
         }
@@ -201,7 +200,7 @@ pub fn run() -> Result<()> {
             output,
         } => {
             let params = build_sweep_parameters(cw_max, slots, payload_bits, trials, seed)?;
-            let records = mixed_classes(
+            let records = experiments::mixed_classes(
                 lower_users,
                 higher_users,
                 lower_cw_min,
