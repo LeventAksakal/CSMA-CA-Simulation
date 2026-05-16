@@ -1,0 +1,11 @@
+{
+    "schema_version": 1,
+    "commit": "",
+    "indexed_at": "2026-05-16T08:08:21Z",
+    "project": "c-Code-CSMA-CA-Simulation",
+    "nodes": 251,
+    "edges": 369,
+    "original_size": 1507328,
+    "compressed_size": 133176,
+    "compression_level": 9
+}
