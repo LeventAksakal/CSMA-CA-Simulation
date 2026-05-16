@@ -20,31 +20,37 @@ pre-commit run --all-files
 Run a single scenario and print a summary:
 
 ```powershell
-cargo run -- single --users 20 --cw-min 16 --slots 20000 --seed 7
+cargo run -- single --users 20 --cw-min 16 --slots 20000 --seed 7 --timing-preset baseline
 ```
 
-Sweep the number of users and write per-class records to CSV:
+Sweep the number of users and write both raw trial records and a sibling summary CSV:
 
 ```powershell
-cargo run -- sweep-users --min-users 10 --max-users 50 --step 10 --cw-min 16 --trials 5 --output results/users.csv
+cargo run -- sweep-users --min-users 10 --max-users 50 --step 10 --cw-min 16 --trials 5 --timing-preset baseline --output results/users.csv
 ```
 
 Sweep the minimum contention window:
 
 ```powershell
-cargo run -- sweep-cw --users 20 --min-cw 8 --max-cw 64 --step 8 --trials 5 --output results/cw.csv
+cargo run -- sweep-cw --users 20 --min-cw 8 --max-cw 64 --step 8 --trials 5 --timing-preset baseline --output results/cw.csv
 ```
 
 Run the mixed-class scenario where one class starts with a lower CWmin:
 
 ```powershell
-cargo run -- mixed-classes --lower-users 10 --higher-users 10 --lower-cw-min 8 --higher-cw-min 32 --trials 10 --output results/mixed.csv
+cargo run -- mixed-classes --lower-users 10 --higher-users 10 --lower-cw-min 8 --higher-cw-min 32 --trials 10 --timing-preset baseline --output results/mixed.csv
 ```
 
-Render plots from previously generated CSV files:
+Render plots from the generated summary CSV files:
 
 ```powershell
-cargo run -- plot --users-input results/users.csv --cw-input results/cw.csv --mixed-input results/mixed.csv --output-dir results/plots
+cargo run -- plot --users-input results/users-summary.csv --cw-input results/cw-summary.csv --mixed-input results/mixed-summary.csv --output-dir results/plots
+```
+
+Write a markdown report from the summary CSVs:
+
+```powershell
+cargo run -- report --users-input results/users-summary.csv --cw-input results/cw-summary.csv --mixed-input results/mixed-summary.csv --plots-dir results/plots --output results/report.md
 ```
 
 Launch the live terminal demo over real simulator trace output:
@@ -76,18 +82,27 @@ Run the full workflow from validated simulator outputs to plots:
 
 ```powershell
 cargo test
-cargo run -- sweep-users --min-users 10 --max-users 50 --step 10 --cw-min 16 --trials 10 --output results/users.csv
-cargo run -- sweep-cw --users 20 --min-cw 8 --max-cw 64 --step 8 --trials 10 --output results/cw.csv
-cargo run -- mixed-classes --lower-users 10 --higher-users 10 --lower-cw-min 8 --higher-cw-min 32 --trials 10 --output results/mixed.csv
-cargo run -- plot --users-input results/users.csv --cw-input results/cw.csv --mixed-input results/mixed.csv --output-dir results/plots
+cargo run -- sweep-users --min-users 10 --max-users 50 --step 10 --cw-min 16 --trials 10 --timing-preset baseline --output results/users.csv
+cargo run -- sweep-cw --users 20 --min-cw 8 --max-cw 64 --step 8 --trials 10 --timing-preset baseline --output results/cw.csv
+cargo run -- mixed-classes --lower-users 10 --higher-users 10 --lower-cw-min 8 --higher-cw-min 32 --trials 10 --timing-preset baseline --output results/mixed.csv
+cargo run -- plot --users-input results/users-summary.csv --cw-input results/cw-summary.csv --mixed-input results/mixed-summary.csv --output-dir results/plots
+cargo run -- report --users-input results/users-summary.csv --cw-input results/cw-summary.csv --mixed-input results/mixed-summary.csv --plots-dir results/plots --output results/report.md
+```
+
+Enable optional parallel trial execution with the existing Rayon feature:
+
+```powershell
+cargo run --features rayon -- sweep-users --min-users 10 --max-users 50 --step 10 --cw-min 16 --trials 10 --output results/users.csv
 ```
 
 ## Project Layout
 
 - `src/app/cli.rs`: CLI entry points for single runs, sweeps, mixed-class studies, and plotting.
 - `src/app/experiments/mod.rs`: parameter sweeps and mixed-class orchestration.
-- `src/app/output.rs`: CSV serialization format shared by experiment export and plotting.
-- `src/app/plot.rs`: CSV aggregation and PNG chart rendering.
+- `src/app/output.rs`: raw per-trial CSV serialization helpers.
+- `src/app/summary.rs`: summary-statistics aggregation, fairness metrics, and summary CSV helpers.
+- `src/app/plot.rs`: summary-driven PNG chart rendering with confidence intervals.
+- `src/app/report.rs`: markdown report generation from summary CSV inputs.
 - `src/app/tui.rs`: live terminal demo that replays per-slot simulator traces.
 - `results/traces/*.json`: optional exported trace files for replay and side-by-side comparison.
 - `src/domain/config.rs`: user-facing simulation configuration types.
@@ -126,11 +141,18 @@ The repository does not claim exact IEEE clause-level conformance. It is a valid
 
 ## Output Artifacts
 
-The sweep commands emit per-trial CSV records. The plot command consumes those CSVs and writes three PNG artifacts:
+The sweep commands emit two CSV layers per run:
 
-- `results/plots/users.png`: average delay and throughput versus user count.
-- `results/plots/cw.png`: average delay and throughput versus CWmin.
-- `results/plots/mixed.png`: average delay and throughput comparison for the lower-CW and higher-CW classes.
+- raw per-trial records, such as `results/users.csv`,
+- aggregated summary rows with means, standard deviations, 95% confidence intervals, Jain fairness, and per-user throughput variance, such as `results/users-summary.csv`.
+
+The plot command consumes the summary CSVs and writes three PNG artifacts:
+
+- `results/plots/users.png`: average delay and throughput versus user count with 95% confidence intervals.
+- `results/plots/cw.png`: average delay and throughput versus CWmin with 95% confidence intervals.
+- `results/plots/mixed.png`: mixed-class delay, throughput, Jain fairness, and per-user throughput variance.
+
+The report command consumes the same summary inputs and writes a markdown artifact such as `results/report.md`.
 
 The demo command does not replace the batch workflow. It runs the real simulator, records a deterministic per-slot trace, and replays it in a TUI with:
 
@@ -165,9 +187,15 @@ With the default commands above, the expected trend is:
 - throughput decreases as CWmin grows,
 - the lower-CW class has lower delay and higher throughput than the higher-CW class.
 
+Timing presets:
+
+- `baseline`: `difs=1`, `sifs=0`, `tx=1`.
+- `short-defer`: `difs=0`, `sifs=0`, `tx=1`.
+- `long-transmission`: `difs=1`, `sifs=1`, `tx=3`.
+
 ## Validation Notes
 
-The repository includes both unit coverage for DCF subcomponents and integration coverage for end-to-end simulator behavior, including deterministic replay, DIFS gating, collision recovery via CW growth, and mixed-class advantage.
+The repository includes both unit coverage for DCF subcomponents and integration coverage for end-to-end simulator behavior, including deterministic replay, DIFS gating, collision recovery via CW growth, mixed-class advantage, and golden regression checks over experiment summary outputs.
 
 ## Quality Gates
 

@@ -5,23 +5,27 @@ use std::{
 };
 
 use anyhow::{Context, Result, ensure};
-use csv::Reader;
-use plotters::prelude::*;
+use plotters::{coord::Shift, prelude::*};
 
-use crate::app::output::ExperimentRecord;
+use crate::app::summary::{ExperimentSummaryRecord, read_summary_records};
 
 const CHART_SIZE: (u32, u32) = (1400, 600);
+const MIXED_CHART_SIZE: (u32, u32) = (1400, 900);
 
 #[derive(Debug, Clone, PartialEq)]
-struct MetricPoint {
+struct NumericSummaryPoint {
     x: f64,
-    value: f64,
+    mean: f64,
+    ci_low: f64,
+    ci_high: f64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-struct LabeledMetricPoint {
+struct LabeledSummaryPoint {
     label: String,
-    value: f64,
+    mean: f64,
+    ci_low: f64,
+    ci_high: f64,
 }
 
 pub fn write_plots(
@@ -33,32 +37,100 @@ pub fn write_plots(
     fs::create_dir_all(output_dir)
         .with_context(|| format!("failed to create {}", output_dir.display()))?;
 
-    let users_records = read_records(users_input)?;
-    let cw_records = read_records(cw_input)?;
-    let mixed_records = read_records(mixed_input)?;
+    let users_records = read_summary_records(users_input)?;
+    let cw_records = read_summary_records(cw_input)?;
+    let mixed_records = read_summary_records(mixed_input)?;
 
-    let users_delay = aggregate_numeric_metric(&users_records, |record| {
-        Some((record.total_users as f64, record.average_delay_slots))
+    let users_delay = numeric_points(
+        &users_records,
+        |record| record.total_users as f64,
+        |record| {
+            (
+                record.mean_average_delay_slots,
+                record.ci95_low_average_delay_slots,
+                record.ci95_high_average_delay_slots,
+            )
+        },
+    );
+    let users_throughput = numeric_points(
+        &users_records,
+        |record| record.total_users as f64,
+        |record| {
+            (
+                record.mean_throughput_bits_per_slot,
+                record.ci95_low_throughput_bits_per_slot,
+                record.ci95_high_throughput_bits_per_slot,
+            )
+        },
+    );
+    let cw_delay = numeric_points(
+        &cw_records,
+        |record| record.cw_min.unwrap_or_default() as f64,
+        |record| {
+            (
+                record.mean_average_delay_slots,
+                record.ci95_low_average_delay_slots,
+                record.ci95_high_average_delay_slots,
+            )
+        },
+    );
+    let cw_throughput = numeric_points(
+        &cw_records,
+        |record| record.cw_min.unwrap_or_default() as f64,
+        |record| {
+            (
+                record.mean_throughput_bits_per_slot,
+                record.ci95_low_throughput_bits_per_slot,
+                record.ci95_high_throughput_bits_per_slot,
+            )
+        },
+    );
+    let mixed_delay = labeled_points(
+        &mixed_records,
+        |record| record.class_name.clone(),
+        |record| {
+            (
+                record.mean_average_delay_slots,
+                record.ci95_low_average_delay_slots,
+                record.ci95_high_average_delay_slots,
+            )
+        },
+    );
+    let mixed_throughput = labeled_points(
+        &mixed_records,
+        |record| record.class_name.clone(),
+        |record| {
+            (
+                record.mean_throughput_bits_per_slot,
+                record.ci95_low_throughput_bits_per_slot,
+                record.ci95_high_throughput_bits_per_slot,
+            )
+        },
+    );
+    let mixed_fairness = fairness_points(&mixed_records, |record| {
+        format!(
+            "cw{}-{}",
+            record.lower_cw_min.unwrap_or_default(),
+            record.higher_cw_min.unwrap_or_default()
+        )
     });
-    let users_throughput = aggregate_numeric_metric(&users_records, |record| {
-        Some((record.total_users as f64, record.throughput_bits_per_slot))
-    });
-    let cw_delay = aggregate_numeric_metric(&cw_records, |record| {
-        record
-            .cw_min
-            .map(|cw_min| (cw_min as f64, record.average_delay_slots))
-    });
-    let cw_throughput = aggregate_numeric_metric(&cw_records, |record| {
-        record
-            .cw_min
-            .map(|cw_min| (cw_min as f64, record.throughput_bits_per_slot))
-    });
-    let mixed_delay = aggregate_labeled_metric(&mixed_records, |record| {
-        (record.class_name.clone(), record.average_delay_slots)
-    });
-    let mixed_throughput = aggregate_labeled_metric(&mixed_records, |record| {
-        (record.class_name.clone(), record.throughput_bits_per_slot)
-    });
+    let mixed_variance = labeled_points(
+        &mixed_records,
+        |record| {
+            format!(
+                "cw{}-{}",
+                record.lower_cw_min.unwrap_or_default(),
+                record.higher_cw_min.unwrap_or_default()
+            )
+        },
+        |record| {
+            (
+                record.mean_per_user_throughput_variance,
+                record.ci95_low_per_user_throughput_variance,
+                record.ci95_high_per_user_throughput_variance,
+            )
+        },
+    );
 
     let users_output = output_dir.join("users.png");
     let cw_output = output_dir.join("cw.png");
@@ -66,97 +138,91 @@ pub fn write_plots(
 
     draw_dual_line_chart(
         &users_output,
-        "Users Sweep",
-        "Users",
-        "Average Delay (slots)",
-        "Throughput (bits/slot)",
+        "users sweep",
+        "users",
+        "average delay (slots)",
+        "throughput (bits/slot)",
         &users_delay,
         &users_throughput,
     )?;
     draw_dual_line_chart(
         &cw_output,
-        "CWmin Sweep",
-        "CWmin",
-        "Average Delay (slots)",
-        "Throughput (bits/slot)",
+        "cwmin sweep",
+        "cwmin",
+        "average delay (slots)",
+        "throughput (bits/slot)",
         &cw_delay,
         &cw_throughput,
     )?;
-    draw_dual_bar_chart(
+    draw_mixed_chart(
         &mixed_output,
-        "Mixed Class Comparison",
-        "Average Delay (slots)",
-        "Throughput (bits/slot)",
         &mixed_delay,
         &mixed_throughput,
+        &mixed_fairness,
+        &mixed_variance,
     )?;
 
     Ok(vec![users_output, cw_output, mixed_output])
 }
 
-fn read_records(path: &Path) -> Result<Vec<ExperimentRecord>> {
-    let mut reader =
-        Reader::from_path(path).with_context(|| format!("failed to open {}", path.display()))?;
-    let mut records = Vec::new();
+fn numeric_points(
+    records: &[ExperimentSummaryRecord],
+    x_value: impl Fn(&ExperimentSummaryRecord) -> f64,
+    metric: impl Fn(&ExperimentSummaryRecord) -> (f64, f64, f64),
+) -> Vec<NumericSummaryPoint> {
+    let mut points: Vec<_> = records
+        .iter()
+        .map(|record| {
+            let (mean, ci_low, ci_high) = metric(record);
+            NumericSummaryPoint {
+                x: x_value(record),
+                mean,
+                ci_low,
+                ci_high,
+            }
+        })
+        .collect();
 
-    for record in reader.deserialize() {
-        records.push(record.with_context(|| format!("failed to parse {}", path.display()))?);
-    }
-
-    ensure!(
-        !records.is_empty(),
-        "{} did not contain any records",
-        path.display()
-    );
-
-    Ok(records)
+    points.sort_by(|left, right| left.x.total_cmp(&right.x));
+    points
 }
 
-fn aggregate_numeric_metric(
-    records: &[ExperimentRecord],
-    value_fn: impl Fn(&ExperimentRecord) -> Option<(f64, f64)>,
-) -> Vec<MetricPoint> {
-    let mut grouped: BTreeMap<i64, (f64, usize)> = BTreeMap::new();
+fn labeled_points(
+    records: &[ExperimentSummaryRecord],
+    label: impl Fn(&ExperimentSummaryRecord) -> String,
+    metric: impl Fn(&ExperimentSummaryRecord) -> (f64, f64, f64),
+) -> Vec<LabeledSummaryPoint> {
+    let mut grouped = BTreeMap::new();
 
     for record in records {
-        if let Some((x, value)) = value_fn(record) {
-            let bucket = grouped
-                .entry((x * 1000.0).round() as i64)
-                .or_insert((0.0, 0));
-            bucket.0 += value;
-            bucket.1 += 1;
-        }
+        let (mean, ci_low, ci_high) = metric(record);
+        grouped.entry(label(record)).or_insert(LabeledSummaryPoint {
+            label: label(record),
+            mean,
+            ci_low,
+            ci_high,
+        });
     }
 
-    grouped
-        .into_iter()
-        .map(|(x, (total, count))| MetricPoint {
-            x: x as f64 / 1000.0,
-            value: total / count as f64,
-        })
-        .collect()
+    grouped.into_values().collect()
 }
 
-fn aggregate_labeled_metric(
-    records: &[ExperimentRecord],
-    value_fn: impl Fn(&ExperimentRecord) -> (String, f64),
-) -> Vec<LabeledMetricPoint> {
-    let mut grouped: BTreeMap<String, (f64, usize)> = BTreeMap::new();
+fn fairness_points(
+    records: &[ExperimentSummaryRecord],
+    label: impl Fn(&ExperimentSummaryRecord) -> String,
+) -> Vec<LabeledSummaryPoint> {
+    let mut grouped = BTreeMap::new();
 
     for record in records {
-        let (label, value) = value_fn(record);
-        let bucket = grouped.entry(label).or_insert((0.0, 0));
-        bucket.0 += value;
-        bucket.1 += 1;
+        grouped.entry(label(record)).or_insert(LabeledSummaryPoint {
+            label: label(record),
+            mean: record.mean_jain_fairness_index,
+            ci_low: record.ci95_low_jain_fairness_index,
+            ci_high: record.ci95_high_jain_fairness_index,
+        });
     }
 
-    grouped
-        .into_iter()
-        .map(|(label, (total, count))| LabeledMetricPoint {
-            label,
-            value: total / count as f64,
-        })
-        .collect()
+    grouped.into_values().collect()
 }
 
 fn draw_dual_line_chart(
@@ -165,8 +231,8 @@ fn draw_dual_line_chart(
     x_label: &str,
     delay_label: &str,
     throughput_label: &str,
-    delay_points: &[MetricPoint],
-    throughput_points: &[MetricPoint],
+    delay_points: &[NumericSummaryPoint],
+    throughput_points: &[NumericSummaryPoint],
 ) -> Result<()> {
     ensure!(!delay_points.is_empty(), "delay series must not be empty");
     ensure!(
@@ -180,7 +246,7 @@ fn draw_dual_line_chart(
 
     draw_line_chart(
         &areas[0],
-        &format!("{title}: Delay"),
+        &format!("{title}: delay"),
         x_label,
         delay_label,
         delay_points,
@@ -188,7 +254,7 @@ fn draw_dual_line_chart(
     )?;
     draw_line_chart(
         &areas[1],
-        &format!("{title}: Throughput"),
+        &format!("{title}: throughput"),
         x_label,
         throughput_label,
         throughput_points,
@@ -199,19 +265,69 @@ fn draw_dual_line_chart(
     Ok(())
 }
 
+fn draw_mixed_chart(
+    output: &Path,
+    delay_points: &[LabeledSummaryPoint],
+    throughput_points: &[LabeledSummaryPoint],
+    fairness_points: &[LabeledSummaryPoint],
+    variance_points: &[LabeledSummaryPoint],
+) -> Result<()> {
+    ensure!(!delay_points.is_empty(), "delay bars must not be empty");
+    ensure!(
+        !throughput_points.is_empty(),
+        "throughput bars must not be empty"
+    );
+
+    let root = BitMapBackend::new(output, MIXED_CHART_SIZE).into_drawing_area();
+    root.fill(&WHITE)?;
+    let areas = root.split_evenly((2, 2));
+
+    draw_bar_chart(
+        &areas[0],
+        "mixed classes: delay",
+        "average delay (slots)",
+        delay_points,
+        RED,
+    )?;
+    draw_bar_chart(
+        &areas[1],
+        "mixed classes: throughput",
+        "throughput (bits/slot)",
+        throughput_points,
+        BLUE,
+    )?;
+    draw_bar_chart(
+        &areas[2],
+        "mixed classes: jain fairness",
+        "jain fairness index",
+        fairness_points,
+        GREEN,
+    )?;
+    draw_bar_chart(
+        &areas[3],
+        "mixed classes: throughput variance",
+        "per-user throughput variance",
+        variance_points,
+        MAGENTA,
+    )?;
+
+    root.present()?;
+    Ok(())
+}
+
 fn draw_line_chart(
-    area: &DrawingArea<BitMapBackend<'_>, plotters::coord::Shift>,
+    area: &DrawingArea<BitMapBackend<'_>, Shift>,
     title: &str,
     x_label: &str,
     y_label: &str,
-    points: &[MetricPoint],
+    points: &[NumericSummaryPoint],
     color: RGBColor,
 ) -> Result<()> {
     let x_min = points.first().map(|point| point.x).unwrap_or(0.0);
     let x_max = points.last().map(|point| point.x).unwrap_or(1.0);
     let y_max = points
         .iter()
-        .map(|point| point.value)
+        .map(|point| point.ci_high.max(point.mean))
         .fold(0.0_f64, f64::max)
         .max(1.0);
     let x_end = if (x_max - x_min).abs() < f64::EPSILON {
@@ -235,80 +351,48 @@ fn draw_line_chart(
         .draw()?;
 
     chart.draw_series(LineSeries::new(
-        points.iter().map(|point| (point.x, point.value)),
+        points.iter().map(|point| (point.x, point.mean)),
         color.stroke_width(3),
     ))?;
     chart.draw_series(
         points
             .iter()
-            .map(|point| Circle::new((point.x, point.value), 5, color.filled())),
+            .map(|point| Circle::new((point.x, point.mean), 5, color.filled())),
+    )?;
+    chart.draw_series(
+        points
+            .iter()
+            .flat_map(|point| confidence_lines(point.x, point.ci_low, point.ci_high, color)),
     )?;
 
-    Ok(())
-}
-
-fn draw_dual_bar_chart(
-    output: &Path,
-    title: &str,
-    delay_label: &str,
-    throughput_label: &str,
-    delay_points: &[LabeledMetricPoint],
-    throughput_points: &[LabeledMetricPoint],
-) -> Result<()> {
-    ensure!(!delay_points.is_empty(), "delay bars must not be empty");
-    ensure!(
-        !throughput_points.is_empty(),
-        "throughput bars must not be empty"
-    );
-
-    let root = BitMapBackend::new(output, CHART_SIZE).into_drawing_area();
-    root.fill(&WHITE)?;
-    let areas = root.split_evenly((1, 2));
-
-    draw_bar_chart(
-        &areas[0],
-        &format!("{title}: Delay"),
-        delay_label,
-        delay_points,
-        RED,
-    )?;
-    draw_bar_chart(
-        &areas[1],
-        &format!("{title}: Throughput"),
-        throughput_label,
-        throughput_points,
-        BLUE,
-    )?;
-
-    root.present()?;
     Ok(())
 }
 
 fn draw_bar_chart(
-    area: &DrawingArea<BitMapBackend<'_>, plotters::coord::Shift>,
+    area: &DrawingArea<BitMapBackend<'_>, Shift>,
     title: &str,
     y_label: &str,
-    points: &[LabeledMetricPoint],
+    points: &[LabeledSummaryPoint],
     color: RGBColor,
 ) -> Result<()> {
     let y_max = points
         .iter()
-        .map(|point| point.value)
+        .map(|point| point.ci_high.max(point.mean))
         .fold(0.0_f64, f64::max)
         .max(1.0);
     let mut chart = ChartBuilder::on(area)
         .caption(title, ("sans-serif", 28).into_font())
         .margin(20)
-        .x_label_area_size(50)
-        .y_label_area_size(60)
-        .build_cartesian_2d(0..points.len(), 0.0_f64..(y_max * 1.1))?;
+        .x_label_area_size(60)
+        .y_label_area_size(70)
+        .build_cartesian_2d(0.0_f64..points.len() as f64, 0.0_f64..(y_max * 1.15))?;
 
     chart
         .configure_mesh()
         .disable_mesh()
         .x_labels(points.len())
         .x_label_formatter(&|value| {
-            let index = *value;
+            let index = value.floor() as usize;
             points
                 .get(index)
                 .map(|point| point.label.clone())
@@ -318,20 +402,46 @@ fn draw_bar_chart(
         .draw()?;
 
     chart.draw_series(points.iter().enumerate().map(|(index, point)| {
-        Rectangle::new(
-            [(index, 0.0), (index + 1, point.value)],
-            color.mix(0.7).filled(),
-        )
+        let left = index as f64 + 0.15;
+        let right = index as f64 + 0.85;
+        Rectangle::new([(left, 0.0), (right, point.mean)], color.mix(0.7).filled())
+    }))?;
+
+    chart.draw_series(points.iter().enumerate().flat_map(|(index, point)| {
+        let center = index as f64 + 0.5;
+        confidence_lines(center, point.ci_low, point.ci_high, color)
     }))?;
 
     Ok(())
 }
 
+fn confidence_lines(
+    x: f64,
+    ci_low: f64,
+    ci_high: f64,
+    color: RGBColor,
+) -> [PathElement<(f64, f64)>; 3] {
+    let style = color.mix(0.6).stroke_width(2);
+    let cap_half_width = 0.1;
+
+    [
+        PathElement::new(vec![(x, ci_low), (x, ci_high)], style),
+        PathElement::new(
+            vec![(x - cap_half_width, ci_low), (x + cap_half_width, ci_low)],
+            style,
+        ),
+        PathElement::new(
+            vec![(x - cap_half_width, ci_high), (x + cap_half_width, ci_high)],
+            style,
+        ),
+    ]
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::app::output::ExperimentRecord;
+    use crate::{TimingPreset, app::summary::ExperimentSummaryRecord};
 
-    use super::{aggregate_labeled_metric, aggregate_numeric_metric};
+    use super::{fairness_points, labeled_points, numeric_points};
 
     fn record(
         total_users: u32,
@@ -339,59 +449,102 @@ mod tests {
         class_name: &str,
         delay: f64,
         throughput: f64,
-    ) -> ExperimentRecord {
-        ExperimentRecord {
+    ) -> ExperimentSummaryRecord {
+        ExperimentSummaryRecord {
             scenario: String::from("test"),
-            trial: 0,
-            seed: 1,
+            timing_preset: TimingPreset::Baseline,
             total_users,
             cw_min,
-            lower_cw_min: None,
-            higher_cw_min: None,
+            lower_cw_min: Some(4),
+            higher_cw_min: Some(16),
             class_name: class_name.to_string(),
             class_users: total_users,
-            successful_packets: 1,
-            collision_attempts: 0,
-            average_delay_slots: delay,
-            throughput_bits_per_slot: throughput,
+            trials: 3,
+            mean_successful_packets: 10.0,
+            mean_collision_attempts: 2.0,
+            mean_average_delay_slots: delay,
+            stddev_average_delay_slots: 1.0,
+            ci95_low_average_delay_slots: delay - 0.5,
+            ci95_high_average_delay_slots: delay + 0.5,
+            mean_throughput_bits_per_slot: throughput,
+            stddev_throughput_bits_per_slot: 2.0,
+            ci95_low_throughput_bits_per_slot: throughput - 1.0,
+            ci95_high_throughput_bits_per_slot: throughput + 1.0,
+            mean_per_user_throughput_bits_per_slot: throughput / total_users.max(1) as f64,
+            mean_jain_fairness_index: 0.8,
+            ci95_low_jain_fairness_index: 0.75,
+            ci95_high_jain_fairness_index: 0.85,
+            mean_per_user_throughput_variance: 0.02,
+            ci95_low_per_user_throughput_variance: 0.01,
+            ci95_high_per_user_throughput_variance: 0.03,
         }
     }
 
     #[test]
-    fn aggregates_numeric_metrics_by_x_value() {
+    fn numeric_points_sort_by_x_value() {
         let records = vec![
-            record(10, Some(8), "standard", 10.0, 100.0),
-            record(10, Some(8), "standard", 14.0, 200.0),
             record(20, Some(16), "standard", 22.0, 300.0),
+            record(10, Some(8), "standard", 12.0, 150.0),
         ];
 
-        let points = aggregate_numeric_metric(&records, |record| {
-            Some((record.total_users as f64, record.average_delay_slots))
-        });
+        let points = numeric_points(
+            &records,
+            |record| record.total_users as f64,
+            |record| {
+                (
+                    record.mean_average_delay_slots,
+                    record.ci95_low_average_delay_slots,
+                    record.ci95_high_average_delay_slots,
+                )
+            },
+        );
 
-        assert_eq!(points.len(), 2);
         assert_eq!(points[0].x, 10.0);
-        assert_eq!(points[0].value, 12.0);
+        assert_eq!(points[0].mean, 12.0);
         assert_eq!(points[1].x, 20.0);
-        assert_eq!(points[1].value, 22.0);
     }
 
     #[test]
-    fn aggregates_labeled_metrics_by_class_name() {
+    fn labeled_points_keep_single_row_per_label() {
         let records = vec![
             record(20, None, "lower-cw", 50.0, 1000.0),
             record(20, None, "higher-cw", 150.0, 300.0),
             record(20, None, "lower-cw", 70.0, 1100.0),
         ];
 
-        let points = aggregate_labeled_metric(&records, |record| {
-            (record.class_name.clone(), record.average_delay_slots)
-        });
+        let points = labeled_points(
+            &records,
+            |record| record.class_name.clone(),
+            |record| {
+                (
+                    record.mean_average_delay_slots,
+                    record.ci95_low_average_delay_slots,
+                    record.ci95_high_average_delay_slots,
+                )
+            },
+        );
 
         assert_eq!(points.len(), 2);
         assert_eq!(points[0].label, "higher-cw");
-        assert_eq!(points[0].value, 150.0);
         assert_eq!(points[1].label, "lower-cw");
-        assert_eq!(points[1].value, 60.0);
+    }
+
+    #[test]
+    fn fairness_points_deduplicate_mixed_summary_rows() {
+        let records = vec![
+            record(20, None, "lower-cw", 50.0, 1000.0),
+            record(20, None, "higher-cw", 150.0, 300.0),
+        ];
+
+        let points = fairness_points(&records, |record| {
+            format!(
+                "cw{}-{}",
+                record.lower_cw_min.unwrap_or_default(),
+                record.higher_cw_min.unwrap_or_default()
+            )
+        });
+
+        assert_eq!(points.len(), 1);
+        assert_eq!(points[0].mean, 0.8);
     }
 }

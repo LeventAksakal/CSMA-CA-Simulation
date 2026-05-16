@@ -1,5 +1,5 @@
 use csma_ca_simulation::{
-    Scenario, SimulationConfig, SimulationSettings, TimingConfig, run, simulate,
+    Scenario, SimulationConfig, SimulationSettings, TimingConfig, TimingPreset, run, simulate,
 };
 
 #[test]
@@ -12,6 +12,7 @@ fn single_user_has_no_collisions() {
             payload_bits: 1_500,
             cw_max: 32,
             seed: 11,
+            timing_preset: TimingPreset::Baseline,
         },
     );
     let result = simulate(&config).expect("single-user simulation should run");
@@ -30,6 +31,7 @@ fn seeded_runs_are_deterministic() {
             payload_bits: 12_000,
             cw_max: 128,
             seed: 77,
+            timing_preset: TimingPreset::Baseline,
         },
     );
 
@@ -51,6 +53,7 @@ fn lower_cw_class_has_better_mixed_class_outcome() {
             payload_bits: 12_000,
             cw_max: 256,
             seed: 23,
+            timing_preset: TimingPreset::Baseline,
         },
     );
     let result = simulate(&config).expect("mixed-class simulation should run");
@@ -124,6 +127,7 @@ fn collisions_eventually_recover_via_backoff_growth() {
             payload_bits: 1_500,
             cw_max: 7,
             seed: 2,
+            timing_preset: TimingPreset::Baseline,
         },
     );
 

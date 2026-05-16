@@ -4,9 +4,12 @@ use anyhow::Result;
 use csv::Writer;
 use serde::{Deserialize, Serialize};
 
+use crate::domain::config::TimingPreset;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ExperimentRecord {
     pub scenario: String,
+    pub timing_preset: TimingPreset,
     pub trial: u32,
     pub seed: u64,
     pub total_users: u32,
@@ -21,7 +24,7 @@ pub struct ExperimentRecord {
     pub throughput_bits_per_slot: f64,
 }
 
-pub fn write_csv(path: &Path, records: &[ExperimentRecord]) -> Result<()> {
+pub fn write_csv<T: Serialize>(path: &Path, records: &[T]) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }

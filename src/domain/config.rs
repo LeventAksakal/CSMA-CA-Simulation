@@ -1,6 +1,54 @@
+use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 
 use crate::domain::scenario::{Scenario, StationClass, TimingConfig, WindowConfig};
+
+#[derive(
+    Debug, Clone, Copy, Serialize, Deserialize, ValueEnum, PartialEq, Eq, PartialOrd, Ord, Default,
+)]
+#[serde(rename_all = "kebab-case")]
+pub enum TimingPreset {
+    #[default]
+    Baseline,
+    ShortDefer,
+    LongTransmission,
+}
+
+impl TimingPreset {
+    pub fn timing_config(self, total_slots: u64, payload_bits: u64) -> TimingConfig {
+        match self {
+            Self::Baseline => TimingConfig {
+                total_slots,
+                payload_bits,
+                difs_slots: 1,
+                sifs_slots: 0,
+                tx_duration_slots: 1,
+            },
+            Self::ShortDefer => TimingConfig {
+                total_slots,
+                payload_bits,
+                difs_slots: 0,
+                sifs_slots: 0,
+                tx_duration_slots: 1,
+            },
+            Self::LongTransmission => TimingConfig {
+                total_slots,
+                payload_bits,
+                difs_slots: 1,
+                sifs_slots: 1,
+                tx_duration_slots: 3,
+            },
+        }
+    }
+
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::Baseline => "difs=1, sifs=0, tx=1",
+            Self::ShortDefer => "difs=0, sifs=0, tx=1",
+            Self::LongTransmission => "difs=1, sifs=1, tx=3",
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct StationClassConfig {
@@ -15,6 +63,7 @@ pub struct SimulationConfig {
     pub payload_bits: u64,
     pub cw_max: u32,
     pub seed: u64,
+    pub timing_preset: TimingPreset,
     pub classes: Vec<StationClassConfig>,
 }
 
@@ -24,6 +73,7 @@ pub struct SimulationSettings {
     pub payload_bits: u64,
     pub cw_max: u32,
     pub seed: u64,
+    pub timing_preset: TimingPreset,
 }
 
 impl SimulationConfig {
@@ -33,6 +83,7 @@ impl SimulationConfig {
             payload_bits: settings.payload_bits,
             cw_max: settings.cw_max,
             seed: settings.seed,
+            timing_preset: settings.timing_preset,
             classes: vec![StationClassConfig {
                 name: String::from("standard"),
                 users,
@@ -53,6 +104,7 @@ impl SimulationConfig {
             payload_bits: settings.payload_bits,
             cw_max: settings.cw_max,
             seed: settings.seed,
+            timing_preset: settings.timing_preset,
             classes: vec![
                 StationClassConfig {
                     name: String::from("lower-cw"),
@@ -75,13 +127,9 @@ impl SimulationConfig {
     pub fn to_scenario(&self) -> Scenario {
         Scenario {
             seed: self.seed,
-            timing: TimingConfig {
-                total_slots: self.total_slots,
-                payload_bits: self.payload_bits,
-                difs_slots: 1,
-                sifs_slots: 0,
-                tx_duration_slots: 1,
-            },
+            timing: self
+                .timing_preset
+                .timing_config(self.total_slots, self.payload_bits),
             window: WindowConfig {
                 cw_max: self.cw_max,
             },
@@ -105,6 +153,7 @@ pub struct SweepParameters {
     pub cw_max: u32,
     pub trials: u32,
     pub base_seed: u64,
+    pub timing_preset: TimingPreset,
 }
 
 impl Default for SweepParameters {
@@ -115,6 +164,7 @@ impl Default for SweepParameters {
             cw_max: 1_024,
             trials: 5,
             base_seed: 7,
+            timing_preset: TimingPreset::Baseline,
         }
     }
 }

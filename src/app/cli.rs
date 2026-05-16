@@ -4,8 +4,14 @@ use anyhow::{Result, ensure};
 use clap::{Parser, Subcommand};
 
 use crate::{
-    app::{experiments, output::write_csv, plot, tui},
-    domain::config::{SimulationConfig, SimulationSettings, SweepParameters},
+    app::{
+        experiments,
+        output::write_csv,
+        plot, report,
+        summary::{self, summarize_records},
+        tui,
+    },
+    domain::config::{SimulationConfig, SimulationSettings, SweepParameters, TimingPreset},
     sim::simulate,
 };
 
@@ -31,6 +37,8 @@ enum Command {
         payload_bits: u64,
         #[arg(long, default_value_t = 7)]
         seed: u64,
+        #[arg(long, value_enum, default_value_t = TimingPreset::Baseline)]
+        timing_preset: TimingPreset,
     },
     SweepUsers {
         #[arg(long)]
@@ -51,6 +59,8 @@ enum Command {
         trials: u32,
         #[arg(long, default_value_t = 7)]
         seed: u64,
+        #[arg(long, value_enum, default_value_t = TimingPreset::Baseline)]
+        timing_preset: TimingPreset,
         #[arg(long)]
         output: PathBuf,
     },
@@ -73,6 +83,8 @@ enum Command {
         trials: u32,
         #[arg(long, default_value_t = 7)]
         seed: u64,
+        #[arg(long, value_enum, default_value_t = TimingPreset::Baseline)]
+        timing_preset: TimingPreset,
         #[arg(long)]
         output: PathBuf,
     },
@@ -95,6 +107,8 @@ enum Command {
         trials: u32,
         #[arg(long, default_value_t = 7)]
         seed: u64,
+        #[arg(long, value_enum, default_value_t = TimingPreset::Baseline)]
+        timing_preset: TimingPreset,
         #[arg(long)]
         output: PathBuf,
     },
@@ -107,6 +121,18 @@ enum Command {
         mixed_input: PathBuf,
         #[arg(long)]
         output_dir: PathBuf,
+    },
+    Report {
+        #[arg(long)]
+        users_input: PathBuf,
+        #[arg(long)]
+        cw_input: PathBuf,
+        #[arg(long)]
+        mixed_input: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+        #[arg(long)]
+        plots_dir: Option<PathBuf>,
     },
     Demo {
         #[arg(long, default_value = "mixed")]
@@ -141,6 +167,7 @@ pub fn run() -> Result<()> {
             slots,
             payload_bits,
             seed,
+            timing_preset,
         } => {
             let config = SimulationConfig::standard(
                 users,
@@ -150,6 +177,7 @@ pub fn run() -> Result<()> {
                     payload_bits,
                     cw_max,
                     seed,
+                    timing_preset,
                 },
             );
             let result = simulate(&config)?;
@@ -193,12 +221,22 @@ pub fn run() -> Result<()> {
             payload_bits,
             trials,
             seed,
+            timing_preset,
             output,
         } => {
-            let params = build_sweep_parameters(cw_max, slots, payload_bits, trials, seed)?;
+            let params =
+                build_sweep_parameters(cw_max, slots, payload_bits, trials, seed, timing_preset)?;
             let records = experiments::sweep_users(min_users, max_users, step, cw_min, &params)?;
+            let summary_records = summarize_records(&records);
+            let summary_output = summary::summary_output_path(&output);
             write_csv(&output, &records)?;
+            write_csv(&summary_output, &summary_records)?;
             println!("wrote {} records to {}", records.len(), output.display());
+            println!(
+                "wrote {} summary rows to {}",
+                summary_records.len(),
+                summary_output.display()
+            );
         }
         Command::SweepCw {
             users,
@@ -210,12 +248,22 @@ pub fn run() -> Result<()> {
             payload_bits,
             trials,
             seed,
+            timing_preset,
             output,
         } => {
-            let params = build_sweep_parameters(cw_max, slots, payload_bits, trials, seed)?;
+            let params =
+                build_sweep_parameters(cw_max, slots, payload_bits, trials, seed, timing_preset)?;
             let records = experiments::sweep_cwmins(users, min_cw, max_cw, step, &params)?;
+            let summary_records = summarize_records(&records);
+            let summary_output = summary::summary_output_path(&output);
             write_csv(&output, &records)?;
+            write_csv(&summary_output, &summary_records)?;
             println!("wrote {} records to {}", records.len(), output.display());
+            println!(
+                "wrote {} summary rows to {}",
+                summary_records.len(),
+                summary_output.display()
+            );
         }
         Command::MixedClasses {
             lower_users,
@@ -227,9 +275,11 @@ pub fn run() -> Result<()> {
             payload_bits,
             trials,
             seed,
+            timing_preset,
             output,
         } => {
-            let params = build_sweep_parameters(cw_max, slots, payload_bits, trials, seed)?;
+            let params =
+                build_sweep_parameters(cw_max, slots, payload_bits, trials, seed, timing_preset)?;
             let records = experiments::mixed_classes(
                 lower_users,
                 higher_users,
@@ -237,8 +287,16 @@ pub fn run() -> Result<()> {
                 higher_cw_min,
                 &params,
             )?;
+            let summary_records = summarize_records(&records);
+            let summary_output = summary::summary_output_path(&output);
             write_csv(&output, &records)?;
+            write_csv(&summary_output, &summary_records)?;
             println!("wrote {} records to {}", records.len(), output.display());
+            println!(
+                "wrote {} summary rows to {}",
+                summary_records.len(),
+                summary_output.display()
+            );
         }
         Command::Plot {
             users_input,
@@ -251,6 +309,22 @@ pub fn run() -> Result<()> {
             for output in outputs {
                 println!("wrote {}", output.display());
             }
+        }
+        Command::Report {
+            users_input,
+            cw_input,
+            mixed_input,
+            output,
+            plots_dir,
+        } => {
+            report::write_report(
+                &users_input,
+                &cw_input,
+                &mixed_input,
+                &output,
+                plots_dir.as_deref(),
+            )?;
+            println!("wrote {}", output.display());
         }
         Command::Demo {
             preset,
@@ -284,6 +358,7 @@ fn build_sweep_parameters(
     payload_bits: u64,
     trials: u32,
     base_seed: u64,
+    timing_preset: TimingPreset,
 ) -> Result<SweepParameters> {
     ensure!(trials > 0, "trials must be greater than zero");
 
@@ -293,5 +368,6 @@ fn build_sweep_parameters(
         cw_max,
         trials,
         base_seed,
+        timing_preset,
     })
 }
