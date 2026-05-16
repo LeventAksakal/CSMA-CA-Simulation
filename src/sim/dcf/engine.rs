@@ -1,7 +1,9 @@
+use std::collections::BTreeMap;
+
 use anyhow::{Result, ensure};
 use rand::{RngExt, SeedableRng, rngs::StdRng};
 
-use crate::domain::report::SimulationReport;
+use crate::domain::report::{AggregateReport, ClassReport, SimulationReport};
 use crate::domain::scenario::Scenario;
 
 use super::{
@@ -15,49 +17,170 @@ use super::{
     window::ContentionWindow,
 };
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StationTraceSnapshot {
+    pub id: usize,
+    pub class_name: String,
+    pub phase: StationPhase,
+    pub current_cw: u32,
+    pub backoff_counter: u32,
+    pub frozen_backoff_counter: Option<u32>,
+    pub defer_slots_remaining: u32,
+    pub packet_age_slots: u64,
+    pub successful_packets: u64,
+    pub collision_attempts: u64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TraceProgressSnapshot {
+    pub elapsed_slots: u64,
+    pub aggregate: AggregateReport,
+    pub per_class: Vec<ClassReport>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SlotEvent {
+    Busy { busy_slots_remaining: u32 },
+    Idle,
+    Success { station_id: usize },
+    Collision { station_ids: Vec<usize> },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TraceFrame {
+    pub slot: u64,
+    pub medium_busy: bool,
+    pub medium_busy_slots_remaining: u32,
+    pub idle_slots: u32,
+    pub event: SlotEvent,
+    pub stations: Vec<StationTraceSnapshot>,
+    pub progress: TraceProgressSnapshot,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SimulationTrace {
+    pub frames: Vec<TraceFrame>,
+    pub report: SimulationReport,
+}
+
+struct DcfSimulation {
+    scenario: Scenario,
+    timing: TimingModel,
+    rng: StdRng,
+    medium: MediumState,
+    stations: Vec<StationRuntime>,
+    collision_events: u64,
+    next_slot: u64,
+}
+
 pub fn run(scenario: &Scenario) -> Result<SimulationReport> {
-    validate_scenario(scenario)?;
+    let mut simulation = DcfSimulation::new(scenario)?;
 
-    let timing = TimingModel::new(scenario.timing);
-    let mut rng = StdRng::seed_from_u64(scenario.seed);
-    let mut medium = MediumState::idle();
-    let mut stations = build_stations(scenario, &mut rng, timing.defer_slots());
-    let mut collision_events = 0_u64;
+    while simulation.step()?.is_some() {}
 
-    for _slot in 0..scenario.timing.total_slots {
-        increment_packet_ages(&mut stations);
+    Ok(simulation.into_report())
+}
 
-        if medium.is_busy() {
-            medium.consume_busy_slot();
-            continue;
-        }
+pub fn trace(scenario: &Scenario) -> Result<SimulationTrace> {
+    let mut simulation = DcfSimulation::new(scenario)?;
+    let mut frames = Vec::new();
 
-        begin_idle_contention(&mut stations, timing.defer_slots());
-
-        let contenders: Vec<usize> = stations
-            .iter()
-            .enumerate()
-            .filter_map(|(index, station)| station.is_ready_to_transmit().then_some(index))
-            .collect();
-
-        match resolve_transmission(contenders) {
-            TransmissionResolution::Idle => {
-                medium.observe_idle_slot();
-                advance_idle_slot(&mut stations);
-            }
-            TransmissionResolution::Success { station_id } => {
-                medium.start_busy(timing.busy_slots_after_success());
-                handle_success(&mut stations, station_id, &mut rng)?;
-            }
-            TransmissionResolution::Collision { station_ids } => {
-                collision_events += 1;
-                medium.start_busy(timing.busy_slots_after_collision());
-                handle_collision(&mut stations, &station_ids, &mut rng)?;
-            }
-        }
+    while let Some(frame) = simulation.step()? {
+        frames.push(frame);
     }
 
-    Ok(build_report(scenario, stations, collision_events))
+    let report = simulation.into_report();
+
+    Ok(SimulationTrace { frames, report })
+}
+
+impl DcfSimulation {
+    fn new(scenario: &Scenario) -> Result<Self> {
+        validate_scenario(scenario)?;
+
+        let timing = TimingModel::new(scenario.timing);
+        let mut rng = StdRng::seed_from_u64(scenario.seed);
+        let stations = build_stations(scenario, &mut rng, timing.defer_slots());
+
+        Ok(Self {
+            scenario: scenario.clone(),
+            timing,
+            rng,
+            medium: MediumState::idle(),
+            stations,
+            collision_events: 0,
+            next_slot: 0,
+        })
+    }
+
+    fn step(&mut self) -> Result<Option<TraceFrame>> {
+        if self.next_slot >= self.scenario.timing.total_slots {
+            return Ok(None);
+        }
+
+        let slot = self.next_slot;
+        increment_packet_ages(&mut self.stations);
+
+        let event = if self.medium.is_busy() {
+            self.medium.consume_busy_slot();
+            SlotEvent::Busy {
+                busy_slots_remaining: self.medium.busy_slots_remaining,
+            }
+        } else {
+            begin_idle_contention(&mut self.stations, self.timing.defer_slots());
+
+            let contenders: Vec<usize> = self
+                .stations
+                .iter()
+                .enumerate()
+                .filter_map(|(index, station)| station.is_ready_to_transmit().then_some(index))
+                .collect();
+
+            match resolve_transmission(contenders) {
+                TransmissionResolution::Idle => {
+                    self.medium.observe_idle_slot();
+                    advance_idle_slot(&mut self.stations);
+                    SlotEvent::Idle
+                }
+                TransmissionResolution::Success { station_id } => {
+                    self.medium
+                        .start_busy(self.timing.busy_slots_after_success());
+                    handle_success(&mut self.stations, station_id, &mut self.rng)?;
+                    SlotEvent::Success { station_id }
+                }
+                TransmissionResolution::Collision { station_ids } => {
+                    self.collision_events += 1;
+                    self.medium
+                        .start_busy(self.timing.busy_slots_after_collision());
+                    handle_collision(&mut self.stations, &station_ids, &mut self.rng)?;
+                    SlotEvent::Collision { station_ids }
+                }
+            }
+        };
+
+        let elapsed_slots = slot + 1;
+        let frame = TraceFrame {
+            slot,
+            medium_busy: self.medium.is_busy(),
+            medium_busy_slots_remaining: self.medium.busy_slots_remaining,
+            idle_slots: self.medium.idle_slots,
+            event,
+            stations: snapshot_stations(&self.stations),
+            progress: build_progress_snapshot(
+                &self.scenario,
+                &self.stations,
+                self.collision_events,
+                elapsed_slots,
+            ),
+        };
+        self.next_slot = elapsed_slots;
+
+        Ok(Some(frame))
+    }
+
+    fn into_report(self) -> SimulationReport {
+        build_report(&self.scenario, self.stations, self.collision_events)
+    }
 }
 
 fn validate_scenario(scenario: &Scenario) -> Result<()> {
@@ -208,13 +331,109 @@ fn sample_backoff_unchecked(cw: u32, rng: &mut StdRng) -> u32 {
     rng.random_range(0..=cw)
 }
 
+fn snapshot_stations(stations: &[StationRuntime]) -> Vec<StationTraceSnapshot> {
+    stations
+        .iter()
+        .map(|station| StationTraceSnapshot {
+            id: station.id,
+            class_name: station.class_name.clone(),
+            phase: station.phase,
+            current_cw: station.current_cw(),
+            backoff_counter: station.backoff.counter,
+            frozen_backoff_counter: station.backoff.frozen_counter,
+            defer_slots_remaining: station.defer_slots_remaining,
+            packet_age_slots: station.packet_age_slots,
+            successful_packets: station.successful_packets,
+            collision_attempts: station.collision_attempts,
+        })
+        .collect()
+}
+
+fn build_progress_snapshot(
+    scenario: &Scenario,
+    stations: &[StationRuntime],
+    collision_events: u64,
+    elapsed_slots: u64,
+) -> TraceProgressSnapshot {
+    let total_successful_packets = stations
+        .iter()
+        .map(|station| station.successful_packets)
+        .sum();
+    let total_delay_slots: u64 = stations
+        .iter()
+        .map(|station| station.total_delay_slots)
+        .sum();
+    let throughput_bits_per_slot = if elapsed_slots == 0 {
+        0.0
+    } else {
+        (total_successful_packets as f64 * scenario.timing.payload_bits as f64)
+            / elapsed_slots as f64
+    };
+    let average_delay_slots = if total_successful_packets == 0 {
+        0.0
+    } else {
+        total_delay_slots as f64 / total_successful_packets as f64
+    };
+
+    let mut grouped: BTreeMap<String, (u32, u64, u64, u64)> = BTreeMap::new();
+
+    for station in stations {
+        let entry = grouped
+            .entry(station.class_name.clone())
+            .or_insert((0, 0, 0, 0));
+        entry.0 += 1;
+        entry.1 += station.successful_packets;
+        entry.2 += station.collision_attempts;
+        entry.3 += station.total_delay_slots;
+    }
+
+    let per_class = grouped
+        .into_iter()
+        .map(
+            |(class_name, (users, successful_packets, collision_attempts, total_delay_slots))| {
+                let average_delay_slots = if successful_packets == 0 {
+                    0.0
+                } else {
+                    total_delay_slots as f64 / successful_packets as f64
+                };
+                let throughput_bits_per_slot = if elapsed_slots == 0 {
+                    0.0
+                } else {
+                    (successful_packets as f64 * scenario.timing.payload_bits as f64)
+                        / elapsed_slots as f64
+                };
+
+                ClassReport {
+                    class_name,
+                    users,
+                    successful_packets,
+                    collision_attempts,
+                    average_delay_slots,
+                    throughput_bits_per_slot,
+                }
+            },
+        )
+        .collect();
+
+    TraceProgressSnapshot {
+        elapsed_slots,
+        aggregate: AggregateReport {
+            total_successful_packets,
+            collision_events,
+            average_delay_slots,
+            throughput_bits_per_slot,
+        },
+        per_class,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use rand::{SeedableRng, rngs::StdRng};
 
     use crate::domain::scenario::{Scenario, TimingConfig};
 
-    use super::{run, sample_backoff, validate_scenario};
+    use super::{SlotEvent, run, sample_backoff, trace, validate_scenario};
 
     #[test]
     fn validation_rejects_zero_tx_duration() {
@@ -264,5 +483,53 @@ mod tests {
         });
 
         assert!(saw_upper_bound);
+    }
+
+    #[test]
+    fn trace_emits_one_frame_per_slot() {
+        let scenario = Scenario::standard(
+            2,
+            1,
+            5,
+            TimingConfig {
+                total_slots: 6,
+                payload_bits: 1_500,
+                difs_slots: 0,
+                sifs_slots: 0,
+                tx_duration_slots: 1,
+            },
+            7,
+        );
+
+        let result = trace(&scenario).expect("trace should run");
+
+        assert_eq!(result.frames.len(), 6);
+        assert_eq!(result.report.total_slots, 6);
+    }
+
+    #[test]
+    fn trace_captures_collision_or_success_events() {
+        let scenario = Scenario::standard(
+            4,
+            1,
+            7,
+            TimingConfig {
+                total_slots: 12,
+                payload_bits: 1_500,
+                difs_slots: 0,
+                sifs_slots: 0,
+                tx_duration_slots: 1,
+            },
+            7,
+        );
+
+        let result = trace(&scenario).expect("trace should run");
+
+        assert!(result.frames.iter().any(|frame| {
+            matches!(
+                frame.event,
+                SlotEvent::Collision { .. } | SlotEvent::Success { .. }
+            )
+        }));
     }
 }

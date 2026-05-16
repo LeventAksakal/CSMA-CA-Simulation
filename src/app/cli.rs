@@ -4,7 +4,7 @@ use anyhow::{Result, ensure};
 use clap::{Parser, Subcommand};
 
 use crate::{
-    app::{experiments, output::write_csv, plot},
+    app::{experiments, output::write_csv, plot, tui},
     domain::config::{SimulationConfig, SimulationSettings, SweepParameters},
     sim::simulate,
 };
@@ -107,6 +107,16 @@ enum Command {
         mixed_input: PathBuf,
         #[arg(long)]
         output_dir: PathBuf,
+    },
+    Demo {
+        #[arg(long, default_value = "mixed")]
+        preset: tui::DemoPreset,
+        #[arg(long, default_value_t = 180)]
+        slots: u64,
+        #[arg(long, default_value_t = 7)]
+        seed: u64,
+        #[arg(long, default_value_t = 150)]
+        tick_ms: u64,
     },
 }
 
@@ -232,6 +242,12 @@ pub fn run() -> Result<()> {
                 println!("wrote {}", output.display());
             }
         }
+        Command::Demo {
+            preset,
+            slots,
+            seed,
+            tick_ms,
+        } => tui::run_demo(preset, seed, slots, tick_ms)?,
     }
 
     Ok(())

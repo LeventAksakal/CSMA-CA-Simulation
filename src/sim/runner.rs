@@ -6,8 +6,14 @@ use crate::{
 
 use super::dcf;
 
+pub use dcf::engine::{SimulationTrace, TraceFrame};
+
 pub fn run(scenario: &Scenario) -> Result<SimulationReport> {
     dcf::engine::run(scenario)
+}
+
+pub fn trace(scenario: &Scenario) -> Result<SimulationTrace> {
+    dcf::engine::trace(scenario)
 }
 
 pub fn simulate(config: &SimulationConfig) -> Result<SimulationReport> {
