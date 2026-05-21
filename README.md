@@ -13,6 +13,7 @@ This project targets an inspectable study model inspired by IEEE 802.11 DCF. It 
 ## Documentation Map
 
 - [docs/README.md](docs/README.md): documentation index.
+- [docs/presentation.md](docs/presentation.md): speaker-ready 10-minute presentation notes covering design, results, and live demo flow.
 - [docs/usage-guide.md](docs/usage-guide.md): how to run the simulator, what each flag means, and how to interpret the outputs.
 - [docs/dcf-model.md](docs/dcf-model.md): the simulator's DCF model, assumptions, timing abstraction, and limitations.
 - [docs/reference/IEEE-80211-2024.txt](docs/reference/IEEE-80211-2024.txt): repository-local CSMA/CA behavior specification derived from public sources.
